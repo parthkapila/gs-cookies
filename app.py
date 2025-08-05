@@ -73,6 +73,8 @@ df['period_squared'] = df['period'] ** 2
 
 # SU_Num cleaning is now handled exclusively in the ETL pipeline.
 # This check will warn if any legacy data with a non-numeric SU_Num is present.
+# Ensure SU_Num is string type before applying string operations
+df['SU_Num'] = df['SU_Num'].astype(str)
 if (df['SU_Num'].str.match(r'^SU', case=False).any() or df['SU_Num'].str.contains(r'[^0-9]', regex=True).any()):
     print("[WARNING] Some SU_Num values in the loaded data are not purely numeric. Please reprocess your data with the updated ETL pipeline.")
 
@@ -1003,7 +1005,7 @@ def su_search():
     return jsonify(results)
 
 
-@app.route('/api/su_history/<int:su_num>')
+@app.route('/api/su_history/<string:su_num>')
 def su_history(su_num):
     # Load data from database only
     df_new = load_data_from_database()
@@ -1011,7 +1013,7 @@ def su_history(su_num):
     # Ensure troop_id is formatted as 5-character string
     df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip().apply(lambda x: f"{x:>5}")
     df_new['canonical_cookie_type'] = df_new['cookie_type'].apply(normalize_cookie_type)
-    df_su = df_new[df_new['SU_Num'] == str(su_num)]
+    df_su = df_new[df_new['SU_Num'] == su_num]
     if df_su.empty:
         return jsonify({"error": "No data"}), 404
 
@@ -1039,7 +1041,7 @@ def su_history(su_num):
     })
 
 
-@app.route('/api/su_scatter_regression/<int:su_num>')
+@app.route('/api/su_scatter_regression/<string:su_num>')
 def su_scatter_regression(su_num):
     from scipy.stats import linregress
     # Load data from database only
@@ -1047,7 +1049,7 @@ def su_scatter_regression(su_num):
     df_new['SU_Num'] = df_new['SU_Num'].astype(str).str.strip() if 'SU_Num' in df_new.columns else df_new['SU #'].astype(str).str.strip()
     # Ensure troop_id is formatted as 5-character string
     df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip().apply(lambda x: f"{x:>5}")
-    df_su = df_new[df_new['SU_Num'] == str(su_num)]
+    df_su = df_new[df_new['SU_Num'] == su_num]
     filtered = df_su.dropna(subset=['number_of_girls', 'number_cases_sold'])
     if filtered.empty or filtered['number_of_girls'].nunique() < 2:
         return jsonify({"line": [], "lower": [], "upper": []})
@@ -1127,7 +1129,7 @@ def regression(troop_id: str):
         "regression_line": line_data,
         "band": band_data
     })
-@app.route('/api/regression/<int:su_num>')
+@app.route('/api/regression/<string:su_num>')
 def regression_su(su_num):
     # Filter data for the given SU number
     su_df = df[df['SU_Num'] == su_num]
