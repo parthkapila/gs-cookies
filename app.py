@@ -977,6 +977,14 @@ def su_predict():
 
         # Load data from database only
         df_new = load_data_from_database()
+        
+        # Clean and prepare the data (same as api_predict for consistency)
+        df_new.rename(columns={
+            'date': 'year',
+            'number_cases_sold': 'cases_sold',
+            'number_of_girls': 'num_girls'
+        }, inplace=True)
+        df_new['year'] = df_new['year'].astype(int)
         df_new['period'] = df_new['period'].astype(int)
         df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip()
         # Ensure troop_id is formatted as 5-character string with leading zeros for numerical values
@@ -1015,8 +1023,8 @@ def su_predict():
         # Debug: Check if the data is loaded correctly
         print(f"[DEBUG] df_new shape: {df_new.shape}")
         print(f"[DEBUG] df_new SU_Num_int unique values: {df_new['SU_Num_int'].unique()[:10]}")
-        print(f"[DEBUG] df_new 2025 data for SU 153: {len(df_new[(df_new['date'] == 2025) & (df_new['SU_Num_int'] == 153)])} rows")
-        print(f"[DEBUG] df_new 2025 cookie types for SU 153: {df_new[(df_new['date'] == 2025) & (df_new['SU_Num_int'] == 153)]['cookie_type'].unique()}")
+        print(f"[DEBUG] df_new 2025 data for SU 153: {len(df_new[(df_new['year'] == 2025) & (df_new['SU_Num_int'] == 153)])} rows")
+        print(f"[DEBUG] df_new 2025 cookie types for SU 153: {df_new[(df_new['year'] == 2025) & (df_new['SU_Num_int'] == 153)]['cookie_type'].unique()}")
 
         # Load active_cookies and build image map
         engine = get_database_connection()
@@ -1036,7 +1044,7 @@ def su_predict():
 
         # Dynamic year detection - use the latest year from the ENTIRE database
         # Get the latest year from the entire database, not just this SU
-        global_latest_year = int(df_new['date'].max())
+        global_latest_year = int(df_new['year'].max())
         pred_year = global_latest_year + 1  # Predict for the next year after the latest year in database
         last_year = global_latest_year       # Use the global latest year as "last year"
         
@@ -1045,7 +1053,7 @@ def su_predict():
         print(f"[DEBUG] SU {su_num} - Using year {last_year} as last year data")
 
         # Check if this SU has data for the latest year
-        su_latest_year_data = df_new[(df_new['date'] == last_year) & (df_new['SU_Num_int'] == su_num_int)]
+        su_latest_year_data = df_new[(df_new['year'] == last_year) & (df_new['SU_Num_int'] == su_num_int)]
         # If su_latest_year_data is empty, ML predictions will still run using all available data
         # But last year sales based predictions will be null for all cookies
         # (handled in the prediction loop below)
@@ -1070,8 +1078,8 @@ def su_predict():
             # Simple prediction: average cases per girl * number of girls
             if len(cookie_data) > 0:
                 # Calculate average cases per girl
-                total_cases = cookie_data['number_cases_sold'].sum()
-                total_girls = cookie_data['number_of_girls'].sum()
+                total_cases = cookie_data['cases_sold'].sum()
+                total_girls = cookie_data['num_girls'].sum()
                 
                 if total_girls > 0:
                     avg_cases_per_girl = total_cases / total_girls
@@ -1090,13 +1098,13 @@ def su_predict():
             original_cookie_type = normalized_to_original.get(cookie, cookie)
             
             # Try multiple case variations since database might have different case
-            last_year_data = df_new[(df_new['date'] == last_year) & 
+            last_year_data = df_new[(df_new['year'] == last_year) & 
                                    (df_new['SU_Num_int'] == su_num_int) & 
                                    (df_new['cookie_type'] == original_cookie_type)]
             
             # If not found, try lowercase version
             if last_year_data.empty:
-                last_year_data = df_new[(df_new['date'] == last_year) & 
+                last_year_data = df_new[(df_new['year'] == last_year) & 
                                        (df_new['SU_Num_int'] == su_num_int) & 
                                        (df_new['cookie_type'].str.lower() == original_cookie_type.lower())]
             
@@ -1110,8 +1118,8 @@ def su_predict():
             
             if not last_year_data.empty:
                 # For SU, aggregate all troops within the SU for this cookie type and year
-                last_year_sales_sum = last_year_data['number_cases_sold'].sum()
-                last_year_girls_sum = last_year_data['number_of_girls'].sum()  # Sum all girls across all troops in SU
+                last_year_sales_sum = last_year_data['cases_sold'].sum()
+                last_year_girls_sum = last_year_data['num_girls'].sum()  # Sum all girls across all troops in SU
                 
                 # Only set values if we have valid data (sales > 0 and girls > 0)
                 if last_year_girls_sum > 0 and last_year_sales_sum > 0:
@@ -1150,7 +1158,7 @@ def su_predict():
             if rc not in forecast:
                 hist = su_data[su_data['normalized_cookie_type'] == rc]
                 if not hist.empty:
-                    avg_pga = (hist['number_cases_sold'] / hist['number_of_girls']).mean()
+                    avg_pga = (hist['cases_sold'] / hist['num_girls']).mean()
                     pred_val = avg_pga * num_girls
                 else:
                     pred_val = 0
