@@ -11,6 +11,7 @@ from transform_to_final_table import (
     save_final
 )
 from upload_to_render_db import upload_to_render_db  # <-- new import
+from ensure_troop_id_format import ensure_troop_id_format  # <-- new import
 
 # === STEP 1: Get list of years to process ===
 def get_unprocessed_years():
@@ -97,6 +98,8 @@ if __name__ == "__main__":
     if combined_df is not None:
         try:
             upload_to_render_db(combined_df)
+            # Step 5: Ensure troop_id formatting is consistent
+            ensure_troop_id_format()
         except Exception as e:
             print(f"❌ Upload to database failed: {e}")
     else:

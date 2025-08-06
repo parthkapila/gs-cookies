@@ -36,8 +36,8 @@ def load_and_clean_participation(file_path: str) -> pd.DataFrame:
     
     # Clean troop_id and format as 5-character string
     part_df['troop_id'] = part_df['troop_id'].astype(str).str.strip()
-    # Format troop_id as 5-character string with leading spaces
-    part_df['troop_id'] = part_df['troop_id'].apply(lambda x: f"{x:>5}")
+    # Format troop_id as 5-character string with leading zeros for numerical values
+    part_df['troop_id'] = part_df['troop_id'].apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
     # Drop rows where troop_id is empty after cleaning
     part_df = part_df[part_df['troop_id'] != '     ']
     return part_df
@@ -135,8 +135,8 @@ def load_and_clean_sales(file_path: str, year: int) -> pd.DataFrame:
 
     # Clean troop_id and format as 5-character string
     melted['troop_id'] = melted['troop_id'].astype(str).str.strip()
-    # Format troop_id as 5-character string with leading spaces
-    melted['troop_id'] = melted['troop_id'].apply(lambda x: f"{x:>5}")
+    # Format troop_id as 5-character string with leading zeros for numerical values
+    melted['troop_id'] = melted['troop_id'].apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
     # Drop rows where troop_id is empty after cleaning
     melted = melted[melted['troop_id'] != '     ']
 

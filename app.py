@@ -64,8 +64,8 @@ if df is None:
 
 # DO NOT force troop_id to int, always treat as string
 # df['troop_id'] = df['troop_id'].astype(int)
-# Ensure troop_id is formatted as 5-character string
-df['troop_id'] = df['troop_id'].astype(str).str.strip().apply(lambda x: f"{x:>5}")
+# Ensure troop_id is formatted as 5-character string with leading zeros for numerical values
+df['troop_id'] = df['troop_id'].astype(str).str.strip().apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
 df['period'] = df['period'].astype(int)
 df['number_of_girls'] = df['number_of_girls'].astype(float)
 df['number_cases_sold'] = df['number_cases_sold'].astype(float)
@@ -177,9 +177,16 @@ def get_troop_ids():
     df_clean = df.copy()
     df_clean['troop_id'] = df_clean['troop_id'].astype(str).str.strip()
     
-    # Get unique troop IDs and format them as 5-character strings with leading spaces
+    # Get unique troop IDs and format them as 5-character strings with leading zeros for numerical values
     unique_troop_ids = df_clean['troop_id'].unique().tolist()
-    formatted_troop_ids = [f"{troop_id:>5}" for troop_id in unique_troop_ids]
+    formatted_troop_ids = []
+    for troop_id in unique_troop_ids:
+        troop_id_clean = troop_id.strip()
+        if troop_id_clean not in ['SU', 'nan', '']:
+            if troop_id_clean.isdigit():
+                formatted_troop_ids.append(f"{int(troop_id_clean):05d}")
+            else:
+                formatted_troop_ids.append(f"{troop_id_clean:>5}")
     
     # Return sorted, formatted troop IDs
     return jsonify(sorted(formatted_troop_ids))
@@ -218,8 +225,8 @@ def api_predict():
         }, inplace=True)
         df_new['year'] = df_new['year'].astype(int)
         df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip()
-        # Ensure troop_id is formatted as 5-character string
-        df_new['troop_id'] = df_new['troop_id'].apply(lambda x: f"{x:>5}")
+        # Ensure troop_id is formatted as 5-character string with leading zeros for numerical values
+        df_new['troop_id'] = df_new['troop_id'].apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
         df_new['cookie_type'] = df_new['cookie_type'].str.strip().str.lower()
         # Normalize cookie_type for all downstream logic
         df_new['normalized_cookie_type'] = df_new['cookie_type'].apply(normalize_cookie_type)
@@ -227,17 +234,24 @@ def api_predict():
         cookie_counts = df_new['normalized_cookie_type'].value_counts().to_dict()
         print(f"[DEBUG] Historical data row counts by cookie: {cookie_counts}")
 
-        # Determine the test year: the latest year available for this troop.
+        # Determine the prediction year: the year after the latest year available for this troop.
         troop_data = df_new[df_new['troop_id'] == troop_id]
         if troop_data.empty:
             print(f"[DEBUG] No data for troop_id {troop_id}")
             return jsonify({"error": "No data for the specified troop"}), 404
-        pred_year = int(troop_data['year'].max())
+        
+        latest_year = int(troop_data['year'].max())
+        pred_year = latest_year + 1  # Predict for the next year
+        last_year = latest_year       # Use the latest year as "last year"
+        
+        print(f"[DEBUG] Latest year in data: {latest_year}")
+        print(f"[DEBUG] Predicting for year: {pred_year}")
+        print(f"[DEBUG] Using year {last_year} as last year data")
 
-        # Filter test data to only include rows for the test year and troop.
-        test = df_new[(df_new['year'] == pred_year) & (df_new['troop_id'] == troop_id)]
+        # Filter test data to only include rows for the last year and troop (for validation purposes).
+        test = df_new[(df_new['year'] == last_year) & (df_new['troop_id'] == troop_id)]
         if test.empty:
-            print(f"[DEBUG] No test data for troop_id {troop_id} in year {pred_year}")
+            print(f"[DEBUG] No test data for troop_id {troop_id} in year {last_year}")
             return jsonify([])
 
         # Set parameters for prediction.
@@ -260,7 +274,7 @@ def api_predict():
 
         # Use normalized_cookie_type for grouping
         train = df_new[(df_new['year'] >= 2020) & 
-                       (df_new['year'] < pred_year) &
+                       (df_new['year'] <= last_year) &
                        (df_new['troop_id'] == troop_id)]
         grouped = list(train.groupby(['year', 'SU_Num', 'normalized_cookie_type']))
         for (yr, su, cookie), group in tqdm(grouped, desc=f"Clustering for {pred_year}", leave=False):
@@ -445,8 +459,7 @@ def api_predict():
                 ('pga_avg', pga_avg_pred, mse_pga_avg),
                 ('su_ridge', su_pred, mse_su)
             ]
-            valid_candidates = [(name, pred, err) for name, pred, err in candidates 
-                                if pred is not None and not np.isnan(pred)]
+            valid_candidates = [(name, pred, err) for name, pred, err in candidates if pred is not None and not np.isnan(pred)]
             if valid_candidates:
                 best_method, best_pred, best_mse = min(valid_candidates, key=lambda x: x[2])
                 preds_for_rmse.append(best_pred)
@@ -489,18 +502,27 @@ def api_predict():
             # Get last year sales for this cookie type
             last_year_sales = None
             last_year_girls = None
-            if pred.get("actual") is not None:
+            
+            # Look for actual last year data for this troop and cookie
+            last_year_data = df_new[(df_new['year'] == last_year) & 
+                                   (df_new['troop_id'] == troop_id) & 
+                                   (df_new['normalized_cookie_type'] == cookie)]
+            
+            if not last_year_data.empty:
+                last_year_sales = last_year_data['cases_sold'].sum()
+                last_year_girls = last_year_data['num_girls'].sum()  # Sum all girls for this troop and cookie
+            elif pred.get("actual") is not None:
+                # Fallback to actual from prediction if no last year data
                 last_year_sales = pred["actual"]
-                # Get last year girls count from test data
                 test_cookie_data = test[test['normalized_cookie_type'] == cookie]
                 if not test_cookie_data.empty:
-                    last_year_girls = test_cookie_data.iloc[0]['num_girls']
+                    last_year_girls = test_cookie_data['num_girls'].sum()  # Sum all girls
             else:
-                # Try to get from test data
+                # Try to get from test data as final fallback
                 test_cookie_data = test[test['normalized_cookie_type'] == cookie]
                 if not test_cookie_data.empty:
-                    last_year_sales = test_cookie_data.iloc[0]['cases_sold']
-                    last_year_girls = test_cookie_data.iloc[0]['num_girls']
+                    last_year_sales = test_cookie_data['cases_sold'].sum()  # Sum all sales
+                    last_year_girls = test_cookie_data['num_girls'].sum()  # Sum all girls
             
             # Calculate last year based prediction
             last_year_based_prediction = None
@@ -792,6 +814,25 @@ def api_predict():
                         interval_width = overall_rmse * 2 if overall_rmse > 0 else 10
                     else:
                         interval_width = 10
+            
+            # Get last year data for this cookie
+            last_year_sales = None
+            last_year_based_prediction = None
+            last_year_data = df_new[(df_new['year'] == last_year) & 
+                                   (df_new['troop_id'] == troop_id) & 
+                                   (df_new['normalized_cookie_type'] == cookie)]
+            
+            if not last_year_data.empty:
+                last_year_sales = last_year_data['cases_sold'].sum()
+                last_year_girls = last_year_data['num_girls'].iloc[0]
+                if last_year_girls > 0 and last_year_sales > 0:
+                    girls_ratio = input_num_girls / last_year_girls
+                    last_year_based_prediction = last_year_sales * girls_ratio
+                else:
+                    # No valid last year data (either no girls or no sales)
+                    last_year_sales = None
+                    last_year_based_prediction = None
+            
             # Always set image_url using normalized cookie type
             image_url = url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True)
             final_predictions.append({
@@ -799,6 +840,8 @@ def api_predict():
                 "predicted_cases": round(predicted_val, 2),
                 "interval_lower": round(max(1, predicted_val - interval_width), 2),
                 "interval_upper": round(predicted_val + interval_width, 2),
+                "last_year_sales": round(last_year_sales, 2) if last_year_sales is not None else None,
+                "last_year_based_prediction": round(last_year_based_prediction, 2) if last_year_based_prediction is not None else None,
                 "image_url": image_url,
                 "source": "model"
             })
@@ -939,7 +982,14 @@ def get_history(troop_id: str):
     su = None
     suName = None
     if 'SU_Num' in troop_df.columns and 'SU_Name' in troop_df.columns:
-        su = int(troop_df['SU_Num'].iloc[0])
+        su_val = troop_df['SU_Num'].iloc[0]
+        # Handle both string and float SU_Num values
+        if isinstance(su_val, str):
+            su = int(float(su_val))
+        elif isinstance(su_val, float):
+            su = int(su_val)
+        else:
+            su = int(su_val)
         suName = troop_df['SU_Name'].iloc[0]
 
     return jsonify({
@@ -978,12 +1028,18 @@ def su_search():
     
     # Debug: Check what SU_Num values exist in the database
     print(f"[DEBUG] SU_Num values in database: {df_clean['SU_Num'].unique()[:10]}")
+    print(f"[DEBUG] Sample SU_Num values: {df_clean['SU_Num'].head(5).tolist()}")
     
-    # Only keep rows where SU_Num contains only digits
-    df_clean = df_clean[df_clean['SU_Num'].str.match(r'^\d+$')]
+    # Only keep rows where SU_Num contains only digits (including decimal points for float values)
+    df_clean = df_clean[df_clean['SU_Num'].str.match(r'^\d+\.?\d*$')]
     
     # Debug: Check what SU_Num values remain after filtering
     print(f"[DEBUG] SU_Num values after filtering: {df_clean['SU_Num'].unique()[:10]}")
+    print(f"[DEBUG] Number of rows after filtering: {len(df_clean)}")
+    
+    # Convert SU_Num to integer strings (remove decimal points)
+    df_clean['SU_Num'] = df_clean['SU_Num'].astype(float).astype(int).astype(str)
+    print(f"[DEBUG] SU_Num values after conversion: {df_clean['SU_Num'].unique()[:10]}")
     
     # If query is empty, return all unique SU numbers
     if not query:
@@ -991,7 +1047,7 @@ def su_search():
         results = all_sus.to_dict(orient='records')
         return jsonify(results)
     
-    # If query is not a digit, return empty array
+    # If query is not a valid number (digits only), return empty array
     if not query.isdigit():
         return jsonify([])
 
@@ -1010,10 +1066,38 @@ def su_history(su_num):
     # Load data from database only
     df_new = load_data_from_database()
     df_new['SU_Num'] = df_new['SU_Num'].astype(str).str.strip() if 'SU_Num' in df_new.columns else df_new['SU #'].astype(str).str.strip()
-    # Ensure troop_id is formatted as 5-character string
-    df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip().apply(lambda x: f"{x:>5}")
+    # Ensure troop_id is formatted as 5-character string with leading zeros for numerical values
+    df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip().apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
     df_new['canonical_cookie_type'] = df_new['cookie_type'].apply(normalize_cookie_type)
+    
+    # Handle all SU_Num formats automatically
+    # Try exact match first, then try different formats
     df_su = df_new[df_new['SU_Num'] == su_num]
+    
+    if df_su.empty:
+        # Try different format variations
+        format_variations = []
+        
+        if su_num.endswith('.0'):
+            # If input has .0, try without it
+            format_variations.append(su_num.replace('.0', ''))
+        else:
+            # If input doesn't have .0, try with it
+            format_variations.append(f"{su_num}.0")
+        
+        # Also try as float and integer
+        try:
+            float_val = float(su_num)
+            format_variations.extend([str(int(float_val)), str(float_val)])
+        except:
+            pass
+        
+        # Try each variation
+        for variation in format_variations:
+            df_su = df_new[df_new['SU_Num'] == variation]
+            if not df_su.empty:
+                break
+    
     if df_su.empty:
         return jsonify({"error": "No data"}), 404
 
@@ -1027,8 +1111,8 @@ def su_history(su_num):
     sales_by_year = troop_sales.groupby('period')['number_cases_sold'].mean().reset_index()
     sales_by_year.rename(columns={'number_cases_sold': 'avgSales'}, inplace=True)
 
-    # Scatter plot data (per cookie type)
-    scatter = df_su[['number_of_girls', 'number_cases_sold', 'canonical_cookie_type']].dropna().to_dict(orient='records')
+    # Scatter plot data (per cookie type) - include year/period field
+    scatter = df_su[['number_of_girls', 'number_cases_sold', 'canonical_cookie_type', 'period']].dropna().to_dict(orient='records')
 
     return jsonify({
         "girlsByYear": [
@@ -1047,8 +1131,8 @@ def su_scatter_regression(su_num):
     # Load data from database only
     df_new = load_data_from_database()
     df_new['SU_Num'] = df_new['SU_Num'].astype(str).str.strip() if 'SU_Num' in df_new.columns else df_new['SU #'].astype(str).str.strip()
-    # Ensure troop_id is formatted as 5-character string
-    df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip().apply(lambda x: f"{x:>5}")
+    # Ensure troop_id is formatted as 5-character string with leading zeros for numerical values
+    df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip().apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
     df_su = df_new[df_new['SU_Num'] == su_num]
     filtered = df_su.dropna(subset=['number_of_girls', 'number_cases_sold'])
     if filtered.empty or filtered['number_of_girls'].nunique() < 2:
@@ -1196,15 +1280,10 @@ def su_predict():
 
         # Load data from database only
         df_new = load_data_from_database()
-        df_new.rename(columns={
-            'date': 'year',
-            'number_cases_sold': 'cases_sold',
-            'number_of_girls': 'num_girls'
-        }, inplace=True)
-        df_new['year'] = df_new['year'].astype(int)
+        df_new['period'] = df_new['period'].astype(int)
         df_new['troop_id'] = df_new['troop_id'].astype(str).str.strip()
-        # Ensure troop_id is formatted as 5-character string
-        df_new['troop_id'] = df_new['troop_id'].apply(lambda x: f"{x:>5}")
+        # Ensure troop_id is formatted as 5-character string with leading zeros for numerical values
+        df_new['troop_id'] = df_new['troop_id'].apply(lambda x: f"{int(x):05d}" if x.strip().isdigit() else f"{x:>5}")
         df_new['SU_Num'] = df_new['SU_Num'].astype(str).str.strip() if 'SU_Num' in df_new.columns else df_new['SU #'].astype(str).str.strip()
         df_new['cookie_type'] = df_new['cookie_type'].str.strip().str.lower()
         df_new['normalized_cookie_type'] = df_new['cookie_type'].apply(normalize_cookie_type)
@@ -1213,7 +1292,35 @@ def su_predict():
         su_col = 'SU_Num' if 'SU_Num' in df_new.columns else 'SU #' if 'SU #' in df_new.columns else None
         if su_col is None:
             return jsonify({"error": "SU column not found in data"}), 500
+        
+        # Handle all SU_Num formats automatically
         su_data = df_new[df_new[su_col] == su_num]
+        
+        if su_data.empty:
+            # Try different format variations
+            format_variations = []
+            
+            if su_num.endswith('.0'):
+                # If input has .0, try without it
+                format_variations.append(su_num.replace('.0', ''))
+            else:
+                # If input doesn't have .0, try with it
+                format_variations.append(f"{su_num}.0")
+            
+            # Also try as float and integer
+            try:
+                float_val = float(su_num)
+                format_variations.extend([str(int(float_val)), str(float_val)])
+            except:
+                pass
+            
+            # Try each variation
+            for variation in format_variations:
+                su_data = df_new[df_new[su_col] == variation]
+                if not su_data.empty:
+                    print(f"[DEBUG] Found data using SU_Num format: {variation}")
+                    break
+        
         if su_data.empty:
             return jsonify({"error": "No data for the specified SU"}), 404
 
@@ -1236,219 +1343,262 @@ def su_predict():
         clusters_by_year = {}
         all_predictions = []
         preds_for_rmse = []
-        # Use all years for this SU
-        grouped = list(su_data.groupby(['year', su_col, 'normalized_cookie_type']))
-        for (yr, su, cookie), group in grouped:
-            valid = group[(group['cases_sold'] > 0) & (group['num_girls'] > 0)].copy()
+        # For SU predictions, we need to aggregate data by year and cookie type
+        # Group by period and cookie type, then aggregate girls and sales
+        su_aggregated = su_data.groupby(['period', 'normalized_cookie_type']).agg({
+            'number_cases_sold': 'sum',
+            'number_of_girls': 'sum'
+        }).reset_index()
+        
+        # Use aggregated data for clustering
+        grouped = list(su_aggregated.groupby(['period', 'normalized_cookie_type']))
+        for (yr, cookie), group in grouped:
+            valid = group[(group['number_cases_sold'] > 0) & (group['number_of_girls'] > 0)].copy()
             if valid.empty or len(valid) < 3:
                 continue
-            valid['pga'] = valid['cases_sold'] / valid['num_girls']
+            valid['pga'] = valid['number_cases_sold'] / valid['number_of_girls']
             X = valid[['pga']].values
             max_k = min(10, len(X))
             wcss = []
             for k in range(1, max_k + 1):
                 kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto").fit(X)
                 wcss.append(kmeans.inertia_)
-            try:
-                knee = KneeLocator(range(1, max_k + 1), wcss, curve='convex', direction='decreasing')
-                optimal_k = knee.knee if knee.knee is not None else 1
-            except Exception:
-                optimal_k = 1
-            kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init="auto").fit(X)
-            valid['cluster'] = kmeans.predict(X)
-            key = (yr, su, cookie)
-            if key not in clusters_by_year:
-                clusters_by_year[key] = []
-            clusters_by_year[key].append(valid[['cases_sold', 'num_girls']])
-        # Use the most recent year for this SU for test data
-        pred_year = su_data['year'].max()
-        test = su_data[su_data['year'] == pred_year]
-        for cookie in su_data['normalized_cookie_type'].unique():
-            # Use all data for this SU and cookie
-            group_test = test[test['normalized_cookie_type'] == cookie]
-            if group_test.empty:
+            
+            if len(wcss) < 3:
                 continue
-            test_row = group_test.iloc[0]
-            su_val = test_row.get(su_col, None)
-            key_prefix = (pred_year, su_val, cookie)
-            training_dfs = clusters_by_year.get(key_prefix, [])
-            cluster_df = pd.concat(training_dfs, ignore_index=True) if training_dfs else pd.DataFrame()
-            cluster_std = cluster_df['cases_sold'].std() if not cluster_df.empty else None
-            # Candidate logic (same as /api/predict)
-            ridge_cluster_pred, mse_cluster = None, float('inf')
-            ridge_su_pred, mse_su, lambda_cv = None, float('inf'), None
-            lin_pred, mse_lin = None, float('inf')
-            pga_last_pred, mse_pga_last = None, float('inf')
-            pga_avg_pred, mse_pga_avg = None, float('inf')
-            if not cluster_df.empty and len(cluster_df) >= 2:
-                X = np.c_[np.ones(len(cluster_df)), cluster_df['num_girls'].values]
-                y = cluster_df['cases_sold'].values.reshape(-1, 1)
-                kf = KFold(n_splits=min(len(cluster_df), 5), shuffle=True, random_state=42)
-                best_lambda = lambda_default
-                best_mse = float('inf')
-                for lam in lambda_grid:
-                    mses = []
-                    for train_idx, val_idx in kf.split(X):
-                        X_tr, X_val = X[train_idx], X[val_idx]
-                        y_tr, y_val = y[train_idx], y[val_idx]
-                        I = np.eye(X.shape[1])
-                        I[0, 0] = 0
-                        beta = np.linalg.inv(X_tr.T @ X_tr + lam * I).dot(X_tr.T @ y_tr)
-                        y_val_pred = X_val @ beta
-                        mses.append(mean_squared_error(y_val, y_val_pred))
-                    avg_mse = np.mean(mses)
-                    if avg_mse < best_mse:
-                        best_mse = avg_mse
-                        best_lambda = lam
-                alpha = len(cluster_df) / (len(cluster_df) + k_smooth)
-                lambda_final = alpha * best_lambda + (1 - alpha) * lambda_default
-                I = np.eye(X.shape[1])
-                I[0, 0] = 0
-                beta = np.linalg.inv(X.T @ X + lambda_final * I).dot(X.T @ y)
+            
+            # Find optimal k using elbow method
+            try:
+                kl = KneeLocator(range(1, len(wcss) + 1), wcss, curve='convex', direction='decreasing')
+                optimal_k = kl.elbow if kl.elbow else 3
+            except:
+                optimal_k = 3
+            
+            # Perform clustering with optimal k
+            kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init="auto").fit(X)
+            valid['cluster'] = kmeans.labels_
+            
+            # Find the cluster closest to the input number of girls
+            cluster_centers = kmeans.cluster_centers_.flatten()
+            target_pga = num_girls * 0.5  # Rough estimate
+            closest_cluster = np.argmin(np.abs(cluster_centers - target_pga))
+            
+            # Get data from the closest cluster
+            cluster_df = valid[valid['cluster'] == closest_cluster]
+            if cluster_df.empty:
+                continue
+            
+            # Ridge regression on cluster data
+            X = np.c_[np.ones(len(cluster_df)), cluster_df['number_of_girls'].values]
+            y = cluster_df['number_cases_sold'].values.reshape(-1, 1)
+            
+            best_lambda = lambda_default
+            best_mse = float('inf')
+            
+            for lambda_val in lambda_grid:
+                try:
+                    beta = np.linalg.inv(X.T @ X + lambda_val * np.eye(X.shape[1])) @ X.T @ y
+                    y_pred = X @ beta
+                    mse = mean_squared_error(y, y_pred)
+                    if mse < best_mse:
+                        best_mse = mse
+                        best_lambda = lambda_val
+                except:
+                    continue
+            
+            # Final prediction using best lambda
+            try:
+                beta = np.linalg.inv(X.T @ X + best_lambda * np.eye(X.shape[1])) @ X.T @ y
                 ridge_cluster_pred = np.array([1, num_girls]) @ beta
-                mse_cluster = mean_squared_error(y, X @ beta)
-            # Candidate 2: Ridge on SU only
-            su_hist = su_data[(su_data[su_col] == su_val) & (su_data['normalized_cookie_type'] == cookie)]
-            su_hist = su_hist[(su_hist['cases_sold'] > 0) & (su_hist['num_girls'] > 0)]
-            n_train = len(su_hist)
-            if n_train > 1:
-                X_su = np.c_[np.ones(n_train), su_hist['num_girls'].values]
-                y_su = su_hist['cases_sold'].values.reshape(-1, 1)
-                if n_train == 2:
-                    best_mse = float('inf')
-                    for lam in lambda_grid:
-                        X_tr, X_val = X_su[:1], X_su[1:]
-                        y_tr, y_val = y_su[:1], y_su[1:]
-                        I = np.eye(X_su.shape[1])
-                        I[0, 0] = 0
-                        beta_temp = np.linalg.inv(X_tr.T @ X_tr + lam * I).dot(X_tr.T @ y_tr)
-                        y_pred_temp = X_val @ beta_temp
-                        mse_val = mean_squared_error(y_val, y_pred_temp)
-                        if mse_val < best_mse:
-                            best_mse = mse_val
-                            lambda_cv = lam
-                elif n_train >= 3:
-                    kf = KFold(n_splits=min(n_train, 3), shuffle=True, random_state=42)
-                    best_mse = float('inf')
-                    for lam in lambda_grid:
-                        mses = []
-                        for train_idx, val_idx in kf.split(X_su):
-                            X_tr, X_val = X_su[train_idx], X_su[val_idx]
-                            y_tr, y_val = y_su[train_idx], y_su[val_idx]
-                            I = np.eye(X_su.shape[1])
-                            I[0, 0] = 0
-                            beta_temp = np.linalg.inv(X_tr.T @ X_tr + lam * I).dot(X_tr.T @ y_tr)
-                            y_pred_temp = X_val @ beta_temp
-                            mses.append(mean_squared_error(y_val, y_pred_temp))
-                        avg_mse = np.mean(mses)
-                        if avg_mse < best_mse:
-                            best_mse = avg_mse
-                            lambda_cv = lam
-                else:
-                    lambda_cv = lambda_default
-                if lambda_cv is not None:
-                    alpha = n_train / (n_train + k_smooth)
-                    lambda_final_su = alpha * lambda_cv + (1 - alpha) * lambda_default
-                    I = np.eye(X_su.shape[1])
-                    I[0, 0] = 0
-                    beta = np.linalg.inv(X_su.T @ X_su + lambda_final_su * I).dot(X_su.T @ y_su)
-                    ridge_su_pred = np.array([1, num_girls]) @ beta
-                    mse_su = mean_squared_error(y_su, X_su @ beta)
-            else:
-                ridge_su_pred = None
-                mse_su = float('inf')
-            # Candidate 3: Linear Regression
-            if n_train >= 2:
-                model = LinearRegression().fit(su_hist[['num_girls']], su_hist['cases_sold'])
+                ridge_cluster_pred = max(0, ridge_cluster_pred[0])
+            except:
+                ridge_cluster_pred = None
+            
+            # Troop-specific ridge regression
+            troop_hist = su_data[(su_data['normalized_cookie_type'] == cookie) & 
+                                (su_data['number_cases_sold'] > 0) & (su_data['number_of_girls'] > 0)]
+            
+            if len(troop_hist) >= 3:
+                n_train = len(troop_hist)
+                X_troop = np.c_[np.ones(n_train), troop_hist['number_of_girls'].values]
+                y_troop = troop_hist['number_cases_sold'].values.reshape(-1, 1)
+                
+                best_lambda_troop = lambda_default
+                best_mse_troop = float('inf')
+                
+                for lambda_val in lambda_grid:
+                    try:
+                        beta = np.linalg.inv(X_troop.T @ X_troop + lambda_val * np.eye(X_troop.shape[1])) @ X_troop.T @ y_troop
+                        y_pred = X_troop @ beta
+                        mse = mean_squared_error(y_troop, y_pred)
+                        if mse < best_mse_troop:
+                            best_mse_troop = mse
+                            best_lambda_troop = lambda_val
+                    except:
+                        continue
+                
+                try:
+                    beta = np.linalg.inv(X_troop.T @ X_troop + best_lambda_troop * np.eye(X_troop.shape[1])) @ X_troop.T @ y_troop
+                    ridge_troop_pred = np.array([1, num_girls]) @ beta
+                    ridge_troop_pred = max(0, ridge_troop_pred[0])
+                except:
+                    ridge_troop_pred = None
+                
+                # Linear regression
+                model = LinearRegression().fit(troop_hist[['number_of_girls']], troop_hist['number_cases_sold'])
                 lin_pred = model.predict([[num_girls]])[0]
-                mse_lin = mean_squared_error(su_hist['cases_sold'], model.predict(su_hist[['num_girls']]))
-            # Candidate 4: Last Year PGA Prediction
-            if not su_hist.empty:
-                last_year = su_hist['year'].max()
-                last_row = su_hist[su_hist['year'] == last_year].iloc[0]
-                pga_last = last_row['cases_sold'] / last_row['num_girls']
+                mse_lin = mean_squared_error(troop_hist['number_cases_sold'],
+                                           model.predict(troop_hist[['number_of_girls']]))
+                
+                # PGA-based predictions
+                last_row = troop_hist.iloc[-1]
+                pga_last = last_row['number_cases_sold'] / last_row['number_of_girls']
                 pga_last_pred = pga_last * num_girls
-                mse_pga_last = mean_squared_error([last_row['cases_sold']], [pga_last * last_row['num_girls']])
-            # Candidate 5: Average PGA Prediction
-            if not su_hist.empty:
-                avg_pga = (su_hist['cases_sold'] / su_hist['num_girls']).mean()
+                mse_pga_last = mean_squared_error([last_row['number_cases_sold']],
+                                                [pga_last * last_row['number_of_girls']])
+                
+                avg_pga = (troop_hist['number_cases_sold'] / troop_hist['number_of_girls']).mean()
                 pga_avg_pred = avg_pga * num_girls
-                mse_pga_avg = mean_squared_error(su_hist['cases_sold'], su_hist['num_girls'] * avg_pga)
-            # Choose the best candidate prediction
+                mse_pga_avg = mean_squared_error(troop_hist['number_cases_sold'],
+                                               troop_hist['number_of_girls'] * avg_pga)
+            else:
+                ridge_troop_pred = None
+                lin_pred = None
+                pga_last_pred = None
+                pga_avg_pred = None
+                mse_lin = float('inf')
+                mse_pga_last = float('inf')
+                mse_pga_avg = float('inf')
+            
+            # SU-level ridge regression
+            su_data_filtered = su_data[(su_data['normalized_cookie_type'] == cookie) & 
+                                     (su_data['number_cases_sold'] > 0) & (su_data['number_of_girls'] > 0)]
+            
+            if len(su_data_filtered) >= 3:
+                X = np.c_[np.ones(len(su_data_filtered)), su_data_filtered['number_of_girls'].values]
+                y = su_data_filtered['number_cases_sold'].values.reshape(-1, 1)
+                
+                best_lambda_su = lambda_default
+                best_mse_su = float('inf')
+                
+                for lambda_val in lambda_grid:
+                    try:
+                        beta = np.linalg.inv(X.T @ X + lambda_val * np.eye(X.shape[1])) @ X.T @ y
+                        y_pred = X @ beta
+                        mse = mean_squared_error(y, y_pred)
+                        if mse < best_mse_su:
+                            best_mse_su = mse
+                            best_lambda_su = lambda_val
+                    except:
+                        continue
+                
+                try:
+                    beta = np.linalg.inv(X.T @ X + best_lambda_su * np.eye(X.shape[1])) @ X.T @ y
+                    su_pred = np.array([1, num_girls]) @ beta
+                    su_pred = max(0, su_pred[0])
+                except:
+                    su_pred = None
+            else:
+                su_pred = None
+            
+            # Test data for fallback
+            test_cookie_data = su_data[(su_data['normalized_cookie_type'] == cookie) & 
+                                     (su_data['period'] == su_data['period'].max())]
+            
+            if not test_cookie_data.empty:
+                test_row = test_cookie_data.iloc[0]
+                pga = test_row['number_cases_sold'] / test_row['number_of_girls']
+                fallback_pred = pga * num_girls
+            else:
+                fallback_pred = None
+            
+            # Collect all predictions
             candidates = [
-                ('cluster_ridge', ridge_cluster_pred, mse_cluster),
-                ('su_ridge', ridge_su_pred, mse_su),
-                ('linreg', lin_pred, mse_lin),
-                ('pga_last', pga_last_pred, mse_pga_last),
-                ('pga_avg', pga_avg_pred, mse_pga_avg)
+                ("ridge_cluster", ridge_cluster_pred, best_mse if ridge_cluster_pred is not None else float('inf')),
+                ("ridge_troop", ridge_troop_pred, best_mse_troop if ridge_troop_pred is not None else float('inf')),
+                ("ridge_su", su_pred, best_mse_su if su_pred is not None else float('inf')),
+                ("linear", lin_pred, mse_lin if lin_pred is not None else float('inf')),
+                ("pga_last", pga_last_pred, mse_pga_last if pga_last_pred is not None else float('inf')),
+                ("pga_avg", pga_avg_pred, mse_pga_avg if pga_avg_pred is not None else float('inf')),
+                ("fallback", fallback_pred, float('inf') if fallback_pred is not None else float('inf'))
             ]
+            
             valid_candidates = [(name, pred, err) for name, pred, err in candidates if pred is not None and not np.isnan(pred)]
             if valid_candidates:
                 best_method, best_pred, best_mse = min(valid_candidates, key=lambda x: x[2])
-                preds_for_rmse.append(best_pred)
-                all_predictions.append({
-                    "su": su_num,
-                    "cookie_type": cookie,
-                    "predicted": best_pred,
-                    "method": best_method,
-                    "candidate_mse": best_mse,
-                    "cluster_std": cluster_std,
-                    "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
-                    "source": "model"
-                })
-        # Fallback: if no candidate predictions were generated, use the test data's PGA.
-        if not all_predictions:
-            for cookie in su_data['normalized_cookie_type'].unique():
-                group_test = test[test['normalized_cookie_type'] == cookie]
-                if group_test.empty:
-                    continue
-                test_row = group_test.iloc[0]
-                pga = test_row['cases_sold'] / test_row['num_girls']
-                fallback_pred = pga * num_girls
-                all_predictions.append({
-                    "su": su_num,
-                    "cookie_type": cookie,
-                    "predicted": fallback_pred,
-                    "method": "fallback_pga",
-                    "candidate_mse": None,
-                    "cluster_std": None,
-                    "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
-                    "source": "fallback"
-                })
-        # Create final predictions without intervals and add last year based predictions
-        final_predictions = []
-        for pred in all_predictions:
-            cookie = pred["cookie_type"]
-            predicted_val = float(pred["predicted"])
+            else:
+                best_pred = 0
+                best_method = "fallback"
             
-            # Get last year sales and girls count for this cookie type from SU data
-            last_year_sales = None
-            last_year_girls = None
-            test_cookie_data = test[test['normalized_cookie_type'] == cookie]
-            if not test_cookie_data.empty:
-                last_year_sales = test_cookie_data.iloc[0]['cases_sold']
-                last_year_girls = test_cookie_data.iloc[0]['num_girls']
+            # Dynamic year detection - automated for any year
+            latest_year = int(su_data['date'].max())
+            pred_year = latest_year + 1  # Predict for next year
+            last_year = latest_year       # Use latest year as "last year"
             
-            # Calculate last year based prediction
-            last_year_based_prediction = None
-            if last_year_sales is not None and last_year_girls is not None and last_year_girls > 0:
-                # Scale last year's sales based on the ratio of girls
-                girls_ratio = num_girls / last_year_girls
-                last_year_based_prediction = last_year_sales * girls_ratio
+            print(f"[DEBUG] SU {su_num} - Latest year in data: {latest_year}")
+            print(f"[DEBUG] SU {su_num} - Predicting for year: {pred_year}")
+            print(f"[DEBUG] SU {su_num} - Using year {last_year} as last year data")
+            
+            # Get last year data for this cookie type
+            last_year_data = df_new[(df_new['date'] == last_year) & 
+                                   (df_new['SU_Num'] == su_num) & 
+                                   (df_new['normalized_cookie_type'] == cookie)]
+            
+            print(f"[DEBUG] SU {su_num} - Cookie {cookie} - Found {len(last_year_data)} rows for year {last_year}")
+            
+            if last_year_data.empty:
+                # Try different format variations for last year data
+                format_variations = []
+                
+                if su_num.endswith('.0'):
+                    format_variations.append(su_num.replace('.0', ''))
+                else:
+                    format_variations.append(f"{su_num}.0")
+                
+                try:
+                    float_val = float(su_num)
+                    format_variations.extend([str(int(float_val)), str(float_val)])
+                except:
+                    pass
+                
+                for variation in format_variations:
+                    last_year_data = df_new[(df_new['date'] == last_year) & 
+                                           (df_new['SU_Num'] == variation) & 
+                                           (df_new['normalized_cookie_type'] == cookie)]
+                    if not last_year_data.empty:
+                        print(f"[DEBUG] SU {su_num} - Cookie {cookie} - Found data using SU_Num format: {variation}")
+                        break
+            
+            if not last_year_data.empty:
+                # For SU, aggregate all troops within the SU for this cookie type and year
+                last_year_sales = last_year_data['number_cases_sold'].sum()
+                last_year_girls = last_year_data['number_of_girls'].sum()  # Sum all girls across all troops in SU
+                if last_year_girls > 0 and last_year_sales > 0:
+                    girls_ratio = num_girls / last_year_girls
+                    last_year_based_prediction = last_year_sales * girls_ratio
+                else:
+                    # No valid last year data (either no girls or no sales)
+                    last_year_sales = None
+                    last_year_based_prediction = None
+            else:
+                # No last year data available
+                last_year_sales = None
+                last_year_based_prediction = None
             
             image_url = url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True)
-            final_predictions.append({
-                "cookie_type": cookie,
-                "predicted_cases": round(predicted_val, 2),
-                "last_year_sales": round(last_year_sales, 2) if last_year_sales is not None else None,
-                "last_year_based_prediction": round(last_year_based_prediction, 2) if last_year_based_prediction is not None else None,
-                "image_url": image_url,
-                "source": "model"
+            
+            all_predictions.append({
+                'cookie_type': cookie,
+                'predicted_cases': round(best_pred, 2),
+                'last_year_sales': last_year_sales,
+                'last_year_based_prediction': last_year_based_prediction,
+                'image_url': image_url,
+                'source': best_method
             })
         # --- Cookie Transitions Logic ---
         transitions_df = pd.read_sql("SELECT * FROM cookie_transitions", engine)
         historical_cookies = set(su_data['normalized_cookie_type'].unique())
-        forecast = {pred["cookie_type"]: float(pred["predicted_cases"]) for pred in final_predictions}
+        forecast = {pred["cookie_type"]: float(pred["predicted_cases"]) for pred in all_predictions}
         print(f"[DEBUG] Initial forecast for transitions: {forecast}")
 
         # NEW: Ensure replaced cookies have forecasts even if not predicted
@@ -1457,12 +1607,12 @@ def su_predict():
             if rc not in forecast:
                 hist = su_data[su_data['normalized_cookie_type'] == rc]
                 if not hist.empty:
-                    avg_pga = (hist['cases_sold'] / hist['num_girls']).mean()
+                    avg_pga = (hist['number_cases_sold'] / hist['number_of_girls']).mean()
                     pred_val = avg_pga * num_girls
                 else:
                     pred_val = 0
                 forecast[rc] = pred_val
-                final_predictions.append({
+                all_predictions.append({
                     "cookie_type": rc,
                     "predicted_cases": round(pred_val, 2),
                     "image_url": url_for('static', filename=cookie_image_map.get(rc, "default.png"), _external=True),
@@ -1494,18 +1644,18 @@ def su_predict():
                 print(f"[DEBUG] {new_cookie} has historical data, skipping transition logic")
         
         # Add any new cookies from forecast that are not already in final_predictions
-        existing_cookies = {pred["cookie_type"] for pred in final_predictions}
+        existing_cookies = {pred["cookie_type"] for pred in all_predictions}
         for cookie, value in forecast.items():
             if cookie not in existing_cookies:
-                final_predictions.append({
+                all_predictions.append({
                     "cookie_type": cookie,
                     "predicted_cases": round(value, 2),
                     "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
                     "source": "fallback"
                 })
-        print(f"[DEBUG] Final predictions after all logic: {final_predictions}")
+        print(f"[DEBUG] Final predictions after all logic: {all_predictions}")
         active_cookies = set(active_df[active_df['status'].str.lower() == 'active']['normalized_cookie_type'])
-        filtered_predictions = [pred for pred in final_predictions if pred["cookie_type"] in active_cookies]
+        filtered_predictions = [pred for pred in all_predictions if pred["cookie_type"] in active_cookies]
 
         # Ensure every active cookie is present
         for cookie in active_cookies:

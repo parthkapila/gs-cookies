@@ -18,7 +18,7 @@ import {
 import "./index.css";
 
 // Base URL for backend API
-const API_BASE = process.env.REACT_APP_API_BASE || "https://gsci-backend.onrender.com"; //"http://localhost:5000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:5001"; //"https://gsci-backend.onrender.com";
 
 /** Helper: convert period integer (e.g., 1, 2, 3...) to actual year (2019 + period) */
 function periodToYear(period) {
@@ -530,7 +530,20 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           }),
         });
         const data = await res.json();
-        setSuPredictions(data);
+        
+        // Format the data the same way as ReturningTroopAnalyticsPage
+        const formatted = {};
+        data.forEach((d) => {
+          const key = d.cookie_type;
+          formatted[key] = {
+            predictedCases: d.predicted_cases,
+            last_year_based_prediction: d.last_year_based_prediction,
+            last_year_sales: d.last_year_sales,
+            imageUrl: d.image_url,
+            source: d.source
+          };
+        });
+        setSuPredictions(formatted);
       } catch (err) {
         console.error("Error fetching Service Unit predictions:", err);
       } finally {
@@ -674,20 +687,20 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           {predictionsLoading ? (
             <div className="spinner" style={{ margin: '40px auto' }}></div>
           ) : (
-            suPredictions.length > 0 && (
+            Object.keys(suPredictions).length > 0 && (
               <div className="cookie-grid" style={{ background: "none", padding: "20px" }}>
-                {suPredictions.map((pred, idx) => (
-                  <div key={idx} className="cookie-box" style={{ fontSize: "18px" }}>
-                    <img src={pred.image_url} alt={pred.cookie_type} />
+                {Object.entries(suPredictions).map(([cookieName, pred]) => (
+                  <div key={cookieName} className="cookie-box" style={{ fontSize: "18px" }}>
+                    <img src={pred.imageUrl} alt={cookieName} />
                     <div className="cookie-info">
                       <div className="cookie-name" style={{ fontSize: "22px" }}>
-                        {pred.cookie_type}
+                        {cookieName}
                       </div>
                       <div className="predicted" style={{ fontSize: "20px" }}>
                         <strong>ML Predicted Cases (Historical):</strong>{" "}
-                        {pred.predicted_cases != null ? getAdjustedPredictedCases(pred.predicted_cases).toFixed(1) : "--"}
+                        {pred.predictedCases != null ? getAdjustedPredictedCases(pred.predictedCases).toFixed(1) : "--"}
                         <span style={{ fontSize: "16px", color: "#666", marginLeft: "10px" }}>
-                          (100%: {pred.predicted_cases != null ? get100PercentPredictedCases(pred.predicted_cases).toFixed(1) : "--"})
+                          (100%: {pred.predictedCases != null ? get100PercentPredictedCases(pred.predictedCases).toFixed(1) : "--"})
                         </span>
                       </div>
                       
@@ -699,7 +712,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                         </span>
                       </div>
 
-                      {pred.predicted_cases == null && (
+                      {pred.predictedCases == null && (
                         <div className="no-data" style={{ fontSize: "14px", color: "#f0ad4e" }}>
                           No historical data available
                         </div>
@@ -844,8 +857,8 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
     }
     const validatedGirls = Math.max(0, Math.min(250, Number(numGirls)));
     setError("");
-    // Format troop ID as 5-character string with leading spaces
-    const troopId = troopInput.trim().padStart(5);
+    // Format troop ID as 5-character string with leading zeros for numerical values
+    const troopId = troopInput.trim().match(/^\d+$/) ? troopInput.trim().padStart(5, '0') : troopInput.trim().padStart(5);
     onSearch(troopId, validatedGirls);
   };
   
@@ -866,7 +879,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           </nav>
         </header>
         <h1 className="title">Returning Troops</h1>
-        <p className="subtitle">Enter your Troop ID (5 characters) and Number of Girls</p>
+        <p className="subtitle">Enter your Troop ID (5 digits, e.g. 00001) and Number of Girls</p>
         <div className="input-container">
           <div className="input-box">
             Troop ID:{" "}
@@ -874,7 +887,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
               value={troopInput}
               onChange={setTroopInput}
               options={troopIds}
-              placeholder="e.g. 00101"
+              placeholder="e.g. 00001"
             />
           </div>
           <div className="input-box">

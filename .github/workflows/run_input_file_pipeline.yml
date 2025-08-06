@@ -34,3 +34,9 @@ jobs:
 
       - name: Run cookie sales pipeline and upload to Render DB
         run: python backend/automation/run_pipeline.py
+        
+      - name: Ensure data consistency
+        run: |
+          echo "🔍 Running comprehensive data consistency checks..."
+          python backend/automation/ensure_data_consistency.py
+          echo "✅ Data consistency checks completed!"
