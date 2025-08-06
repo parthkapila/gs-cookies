@@ -48,8 +48,7 @@ body {
   gap: 30px;
   font-size: 26px;
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 30px;
 }
 
 .nav-link {

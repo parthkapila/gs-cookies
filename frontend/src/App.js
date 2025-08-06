@@ -237,9 +237,9 @@ function CustomDropdown({
             <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
           </div>
           <nav className="nav-links">
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Sales Prediction Platform</h1>
@@ -279,9 +279,9 @@ function CustomDropdown({
             <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
           </div>
           <nav className="nav-links">
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
   
@@ -299,7 +299,7 @@ function CustomDropdown({
           {isDetailsVisible && (
             <div className="details-section" id="details">
               <h2>Business Problem</h2>
-              <p>Every year, thousands of Girl Scouts rely on cookie sales for fundraising. The current forecast method—based solely on the previous year’s numbers—explains only 70% of sales variability. This limitation often leads to missed revenue opportunities or excess stock. By leveraging advanced predictive models, we can bridge this gap and unlock new opportunities for growth, efficiency, and increased fundraising success.</p>
+              <p>Every year, thousands of Girl Scouts rely on cookie sales for fundraising. The current forecast method—based solely on the previous year's numbers—explains only 70% of sales variability. This limitation often leads to missed revenue opportunities or excess stock. By leveraging advanced predictive models, we can bridge this gap and unlock new opportunities for growth, efficiency, and increased fundraising success.</p>
 
               <h2>Key Benefits</h2>
               <ul>
@@ -341,7 +341,7 @@ function CustomDropdown({
               </ul>
               <strong>BASE MODEL APPROACHES:</strong>
               <ul>
-                <li><strong>SIO Model:</strong> Uses last year’s sales and troop participation to estimate.</li>
+                <li><strong>SIO Model:</strong> Uses last year's sales and troop participation to estimate.</li>
                 <li><strong>AVG Model:</strong> Averages past sales from 2021-2023 to predict 2024. However, these models had higher RMSE values, indicating significant prediction errors.</li>
               </ul>
               <img src="Ch2.jpg" alt="Base Model Chart" />
@@ -412,8 +412,20 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
     const validatedGirls = Math.max(0, Math.min(250, Number(numGirls)));
     setError("");
     
+    // Debug logging
+    console.log("SU Input:", suInput, "Type:", typeof suInput);
+    console.log("SU Options:", suOptions.slice(0, 3));
+    console.log("SU Options types:", suOptions.slice(0, 3).map(opt => ({ SU_Num: opt.SU_Num, type: typeof opt.SU_Num })));
+    
     // Find the selected Service Unit from the options
-    const selectedServiceUnit = suOptions.find(option => option.SU_Num.toString() === suInput);
+    // Handle both string and number types for robust comparison
+    const selectedServiceUnit = suOptions.find(option => 
+      option.SU_Num.toString() === suInput.toString() || 
+      option.SU_Num === parseInt(suInput)
+    );
+    
+    console.log("Selected Service Unit:", selectedServiceUnit);
+    
     if (!selectedServiceUnit) {
       setError("No Service Unit found with that number.");
       return;
@@ -433,9 +445,9 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
         </div>
         <nav className="nav-links">
-          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           <div className="nav-link" onClick={onHome}><FaHome /></div>
           <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
         </nav>
       </header>
       <h1 className="title">New Troop Service Unit Search</h1>
@@ -627,9 +639,9 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
           </div>
           <nav className="nav-links">
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Service Unit Dashboard</h1>
@@ -873,9 +885,9 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
           </div>
           <nav className="nav-links">
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Returning Troops</h1>
@@ -1089,9 +1101,9 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
           </div>
           <nav className="nav-links">
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Returning Troop Dashboard</h1>
@@ -1271,9 +1283,9 @@ function AboutPage({ onBack, onHome, onFaq }) {
           <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
         </div>
         <nav className="nav-links">
-          <div className="nav-link" onClick={onBack}><FaInfoCircle /></div>
           <div className="nav-link" onClick={onHome}><FaHome /></div>
           <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
         </nav>
       </header>
       <h1 className="title">About The Platform</h1>
@@ -1520,9 +1532,9 @@ function FAQPage({ onBack, onHome, onAbout }) {
           <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
         </div>
         <nav className="nav-links">
-          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           <div className="nav-link" onClick={onHome}><FaHome /></div>
-          <div className="nav-link" onClick={onBack}><FaQuestionCircle /></div>
+          <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
+          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
         </nav>
       </header>
       <h1 className="title">Frequently Asked Questions</h1>
