@@ -28,13 +28,13 @@ CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000", "https://g
 # -------------------------------
 def get_database_connection() -> Any:
     """Create database connection using environment variable"""
-    database_url = os.getenv('RENDER_DATABASE_URL')
+    database_url = os.getenv('DATABASE_URL')
     if database_url:
         if database_url.startswith('postgres://'):
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
         return create_engine(database_url)
     else:
-        raise Exception("RENDER_DATABASE_URL not found. Please set it in your environment.")
+        raise Exception("DATABASE_URL not found. Please set it in your environment.")
 
 def load_data_from_database() -> pd.DataFrame:
     """Load data from PostgreSQL database"""
@@ -243,12 +243,16 @@ def api_predict():
         print(f"[DEBUG] Global latest year in database: {global_latest_year}")
         print(f"[DEBUG] Predicting for year: {pred_year}")
         print(f"[DEBUG] Using year {last_year} as last year data")
+        print(f"[DEBUG] ML will use data from years < {pred_year}, SIO will use data from year {last_year}")
 
         # Check if this troop has data for the latest year
         troop_data = df_new[df_new['troop_id'] == troop_id]
         if troop_data.empty:
             print(f"[DEBUG] No data for troop_id {troop_id}")
             return jsonify({"error": "No data for the specified troop"}), 404
+        
+        troop_years = sorted(troop_data['year'].unique())
+        print(f"[DEBUG] Troop {troop_id} has data for years: {troop_years}")
         
         # For test data, use the latest year (even if empty, so ML can run)
         test = df_new[(df_new['year'] == last_year) & (df_new['troop_id'] == troop_id)]
@@ -325,6 +329,7 @@ def api_predict():
                     avg_cases_per_girl = (troop_hist['cases_sold'] / troop_hist['num_girls']).mean()
                     predicted_cases = avg_cases_per_girl * input_num_girls
                     print(f"[DEBUG] Cookie {cookie}: avg_cases_per_girl={avg_cases_per_girl}, predicted_cases={predicted_cases}")
+                    print(f"[DEBUG] Cookie {cookie}: years available in troop_hist: {sorted(troop_hist['year'].unique())}")
                     
                     all_predictions.append({
                         "troop_id": troop_id,
@@ -407,6 +412,7 @@ def api_predict():
                                     (df_new['year'] < pred_year)]
                 troop_hist = troop_hist[(troop_hist['cases_sold'] > 0) & (troop_hist['num_girls'] > 0)]
                 n_train = len(troop_hist)
+                print(f"[DEBUG] Complex ML for {cookie}: troop_hist has {n_train} training points from years {sorted(troop_hist['year'].unique()) if not troop_hist.empty else 'none'}")
                 if n_train > 1:
                     X_troop = np.c_[np.ones(n_train), troop_hist['num_girls'].values]
                     y_troop = troop_hist['cases_sold'].values.reshape(-1, 1)
@@ -461,20 +467,20 @@ def api_predict():
                     lin_pred = model.predict([[input_num_girls]])[0]
                     mse_lin = mean_squared_error(troop_hist['cases_sold'],
                                                  model.predict(troop_hist[['num_girls']]))
-                # Candidate 4: Last Year PGA Prediction.
-                if not troop_hist.empty:
-                    last_year = troop_hist['year'].max()
-                    last_row = troop_hist[troop_hist['year'] == last_year].iloc[0]
-                    pga_last = last_row['cases_sold'] / last_row['num_girls']
-                    pga_last_pred = pga_last * input_num_girls
-                    mse_pga_last = mean_squared_error([last_row['cases_sold']],
-                                                      [pga_last * last_row['num_girls']])
-                # Candidate 5: Average PGA Prediction.
-                if not troop_hist.empty:
-                    avg_pga = (troop_hist['cases_sold'] / troop_hist['num_girls']).mean()
-                    pga_avg_pred = avg_pga * input_num_girls
-                    mse_pga_avg = mean_squared_error(troop_hist['cases_sold'],
-                                                     troop_hist['num_girls'] * avg_pga)
+                # Candidate 4: Last Year PGA Prediction. (COMMENTED OUT - No longer used to avoid duplication with SIO)
+                # if not troop_hist.empty:
+                #     last_year = troop_hist['year'].max()
+                #     last_row = troop_hist[troop_hist['year'] == last_year].iloc[0]
+                #     pga_last = last_row['cases_sold'] / last_row['num_girls']
+                #     pga_last_pred = pga_last * input_num_girls
+                #     mse_pga_last = mean_squared_error([last_row['cases_sold']],
+                #                                       [pga_last * last_row['num_girls']])
+                # Candidate 5: Average PGA Prediction. (COMMENTED OUT - No longer used to avoid duplication with SIO)
+                # if not troop_hist.empty:
+                #     avg_pga = (troop_hist['cases_sold'] / troop_hist['num_girls']).mean()
+                #     pga_avg_pred = avg_pga * input_num_girls
+                #     mse_pga_avg = mean_squared_error(troop_hist['cases_sold'],
+                #                                      troop_hist['num_girls'] * avg_pga)
                 # Candidate 6: SU-level Ridge without clustering.
                 su_data = df_new[(df_new['SU_Num'] == test_row['SU_Num']) &
                                  (df_new['normalized_cookie_type'] == cookie) &
@@ -506,29 +512,47 @@ def api_predict():
                     su_pred = np.array([1, input_num_girls]) @ beta
                     mse_su = mean_squared_error(y, X @ beta)
                 # Choose the best candidate prediction.
+                # Exclude PGA-based methods to avoid duplication with SIO predictions
                 candidates = [
                     ('cluster_ridge', ridge_cluster_pred, mse_cluster),
                     ('troop_ridge', ridge_troop_pred, mse_troop),
                     ('linreg', lin_pred, mse_lin),
-                    ('pga_last', pga_last_pred, mse_pga_last),
-                    ('pga_avg', pga_avg_pred, mse_pga_avg),
                     ('su_ridge', su_pred, mse_su)
                 ]
                 valid_candidates = [(name, pred, err) for name, pred, err in candidates if pred is not None and not np.isnan(pred)]
+                print(f"[DEBUG] All ML candidates for {cookie}: {[(name, round(float(pred), 2) if pred is not None else None, round(float(err), 2) if err != float('inf') else 'inf') for name, pred, err in candidates]}")
                 if valid_candidates:
                     best_method, best_pred, best_mse = min(valid_candidates, key=lambda x: x[2])
+                    print(f"[DEBUG] Valid ML candidates for {cookie}: {[(name, round(float(pred), 2), round(float(err), 2)) for name, pred, err in valid_candidates]}")
+                    print(f"[DEBUG] ML winner: {best_method} with prediction {float(best_pred):.2f} (MSE: {float(best_mse):.2f})")
                     preds_for_rmse.append(best_pred)
+                    
+                    # Add the successful ML prediction to all_predictions
                     all_predictions.append({
                         "troop_id": troop_id,
                         "cookie_type": cookie,
                         "actual": test_row['cases_sold'],
-                        "predicted": best_pred,
+                        "predicted": float(best_pred),
                         "method": best_method,
-                        "candidate_mse": best_mse,
+                        "candidate_mse": float(best_mse),
                         "cluster_std": cluster_std,
                         "su": test_row.get("SU_Num", None),
                         "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
                         "source": "model"
+                    })
+                else:
+                    print(f"[DEBUG] No valid ML candidates for {cookie} - all returned None or NaN")
+                    all_predictions.append({
+                        "troop_id": troop_id,
+                        "cookie_type": cookie,
+                        "actual": test_row['cases_sold'],
+                        "predicted": None,
+                        "method": "no_valid_candidates",
+                        "candidate_mse": None,
+                        "cluster_std": cluster_std,
+                        "su": test_row.get("SU_Num", None),
+                        "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
+                        "source": "missing"
                     })
         # Fallback: if no candidate predictions were generated, use the test data's PGA.
         if not all_predictions:
@@ -604,6 +628,9 @@ def api_predict():
                 # Scale last year's sales based on the ratio of girls
                 girls_ratio = input_num_girls / last_year_girls
                 last_year_based_prediction = last_year_sales * girls_ratio
+                print(f"[DEBUG] SIO calculation for {cookie}: {last_year_sales} * ({input_num_girls} / {last_year_girls}) = {last_year_based_prediction:.2f}")
+            else:
+                print(f"[DEBUG] SIO calculation skipped for {cookie}: last_year_sales={last_year_sales}, last_year_girls={last_year_girls}")
             
             # Always set image_url using normalized cookie type
             image_url = url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True)
@@ -615,6 +642,7 @@ def api_predict():
                 "image_url": image_url,
                 "source": "model"
             })
+            print(f"[DEBUG] Final result for {cookie}: ML={round(predicted_val, 2)}, SIO={round(last_year_based_prediction, 2) if last_year_based_prediction is not None else None}")
         print(f"[DEBUG] Final predictions before active filter: {final_predictions}")
         
         # --- Active Cookies Logic ---
@@ -1069,7 +1097,8 @@ def su_predict():
             print(f"[DEBUG] SU {su_num} - Processing cookie: {cookie}")
             
             # Get data for this cookie type
-            cookie_data = su_data[su_data['normalized_cookie_type'] == cookie]
+            cookie_data = su_data[(su_data['normalized_cookie_type'] == cookie) & 
+                                 (su_data['year'] < pred_year)]
             
             if cookie_data.empty:
                 print(f"[DEBUG] SU {su_num} - No data for cookie {cookie}")

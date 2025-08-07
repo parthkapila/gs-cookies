@@ -43,9 +43,9 @@ def fetch_and_upload_cookie_mapping() -> None:
     transitions_df.drop(columns=["Takes Share from (Other Cookies)", "Share % Taken"], inplace=True)
 
     # Upload to Render DB
-    db_url = os.getenv("RENDER_DATABASE_URL")
+    db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        raise ValueError("RENDER_DATABASE_URL not set in environment variables")
+        raise ValueError("DATABASE_URL not set in environment variables")
 
     engine = create_engine(db_url)
     transitions_df.to_sql("cookie_transitions", con=engine, if_exists="replace", index=False)
