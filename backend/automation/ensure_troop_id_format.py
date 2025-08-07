@@ -14,7 +14,7 @@ def ensure_troop_id_format():
     
     # Load environment variables
     load_dotenv()
-    database_url = os.getenv('RENDER_DATABASE_URL')
+    database_url = os.getenv('DATABASE_URL')
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
     

@@ -18,7 +18,7 @@ import {
 import "./index.css";
 
 // Base URL for backend API
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:5001"; //"https://gsci-backend.onrender.com";
+const API_BASE = process.env.REACT_APP_API_BASE || "https://gsci-backend.onrender.com"; //"http://localhost:5000";
 
 /** Helper: convert period integer (e.g., 1, 2, 3...) to actual year (2019 + period) */
 function periodToYear(period) {

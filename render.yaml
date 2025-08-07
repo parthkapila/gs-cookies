@@ -8,7 +8,7 @@ services:
     envVars:
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: backend/automation/cookie-drive-bot.json
-      - key: RENDER_DATABASE_URL #Set as Environment Variable on render
+      - key: DATABASE_URL #Set as Environment Variable on render
 
 jobs:
   - type: cron
@@ -20,5 +20,5 @@ jobs:
     envVars:
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: backend/automation/cookie-drive-bot.json
-      - key: RENDER_DATABASE_URL #Set as Environment Variable on render
+      - key: DATABASE_URL #Set as Environment Variable on render
   

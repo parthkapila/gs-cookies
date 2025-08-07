@@ -11,7 +11,7 @@ jobs:
 
     env:
       GOOGLE_APPLICATION_CREDENTIALS: service_account.json
-      RENDER_DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - name: Checkout repository

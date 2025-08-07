@@ -33,9 +33,9 @@ def format_su_numbers(df: pd.DataFrame) -> pd.DataFrame:
     return df_copy
 
 def upload_to_render_db(df: pd.DataFrame, table_name: str = "final_cookie_sales_all_years") -> None:
-    db_url = os.getenv("RENDER_DATABASE_URL")
+    db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        raise ValueError("RENDER_DATABASE_URL not set in environment variables")
+        raise ValueError("DATABASE_URL not set in environment variables")
 
     # Import validation functions
     from validate_data_formats import validate_data_formats, auto_fix_data_formats
