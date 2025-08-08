@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { FaHome, FaInfoCircle, FaQuestionCircle, FaChevronDown } from "react-icons/fa";
+import { FaHome, FaQuestionCircle, FaChevronDown } from "react-icons/fa";
 import {
   BarChart,
   Bar,
@@ -14,6 +14,7 @@ import {
   ScatterChart,
   Scatter,
   ReferenceLine,
+  Label,
 } from "recharts";
 import "./index.css";
 
@@ -53,6 +54,30 @@ function formatTooltipValue(value) {
 /** Custom tooltip formatter for Recharts */
 function customTooltipFormatter(value, name, props) {
   return [formatTooltipValue(value), name];
+}
+
+function yearLabelFormatter(period) {
+  try {
+    return `Year: ${periodToYear(Number(period))}`;
+  } catch (_) {
+    return `Year: ${period}`;
+  }
+}
+
+function makeFriendlyFormatter(nameMap) {
+  return (value, name) => [formatTooltipValue(value), nameMap[name] || name];
+}
+
+function ScatterTooltip({ active, payload }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0]?.payload || {};
+  return (
+    <div style={{ background: "white", padding: 8, border: "1px solid #ddd", borderRadius: 4 }}>
+      <div>Girls: {formatTooltipValue(p.number_of_girls)}</div>
+      <div>Cases Sold: {formatTooltipValue(p.number_cases_sold)}</div>
+      <div>{yearLabelFormatter(p.period)}</div>
+    </div>
+  );
 }
 
 function getTrendline(data, xKey, yKey) {
@@ -225,7 +250,7 @@ function CustomDropdown({
 /* ------------------------------------------------------------------
    PAGE 1: LandingPage -> user picks "New Troop" or "Returning Troop"
    ------------------------------------------------------------------ */
-   function LandingPage({ onNewTroop, onReturningTroop, onManual, onAbout, onFaq, onHome }) {
+   function LandingPage({ onNewTroop, onReturningTroop, onManual, onFaq, onHome }) {
     return (
       <div className="main-container">
         <div className="background"></div>
@@ -239,7 +264,6 @@ function CustomDropdown({
           <nav className="nav-links">
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Sales Prediction Platform</h1>
@@ -253,7 +277,7 @@ function CustomDropdown({
     );
   }
 
-  function ManualPage({ onBack, onAbout, onFaq, onHome }) {
+  function ManualPage({ onBack, onFaq, onHome }) {
     const [isDetailsVisible, setIsDetailsVisible] = useState(false);
     const [lightMode, setLightMode] = useState(false);
   
@@ -281,7 +305,6 @@ function CustomDropdown({
           <nav className="nav-links">
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
   
@@ -379,7 +402,7 @@ function CustomDropdown({
 /* ------------------------------------------------------------------
    PAGE 2: NewTroopSearchPage -> user enters Service Unit # and sees suggestions (non-clickable)
    ------------------------------------------------------------------ */
-function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
+function NewTroopSearchPage({ onSearch, onBack, onFaq, onHome }) {
   const [suInput, setSuInput] = useState("");
   const [numGirls, setNumGirls] = useState("");
   const [error, setError] = useState("");
@@ -447,7 +470,6 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
         <nav className="nav-links">
           <div className="nav-link" onClick={onHome}><FaHome /></div>
           <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
         </nav>
       </header>
       <h1 className="title">New Troop Service Unit Search</h1>
@@ -492,7 +514,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
      - Vertical highlighting (via ReferenceLine) in each scatter chart at that value.
      - Updated chart title for total average cases sold.
    ------------------------------------------------------------------ */
-      function NewTroopAnalyticsPage({ suNumber, suName, initialNumGirls = "", onBack, onAbout, onFaq, onHome }) {
+      function NewTroopAnalyticsPage({ suNumber, suName, initialNumGirls = "", onBack, onFaq, onHome }) {
     const [girlsData, setGirlsData] = useState([]);
     const [salesData, setSalesData] = useState([]);
     const [scatterData, setScatterData] = useState([]);
@@ -552,7 +574,8 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             last_year_based_prediction: d.last_year_based_prediction,
             last_year_sales: d.last_year_sales,
             imageUrl: d.image_url,
-            source: d.source
+            source: d.source,
+            sioBaseYear: d.sio_base_year
           };
         });
         setSuPredictions(formatted);
@@ -641,7 +664,6 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           <nav className="nav-links">
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Service Unit Dashboard</h1>
@@ -709,7 +731,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                         {cookieName}
                       </div>
                       <div className="predicted" style={{ fontSize: "20px" }}>
-                        <strong>ML Predicted Cases (Historical):</strong>{" "}
+                        <strong>ML-Recommended Cases:</strong>{" "}
                         {pred.predictedCases != null ? getAdjustedPredictedCases(pred.predictedCases).toFixed(1) : "--"}
                         <span style={{ fontSize: "16px", color: "#666", marginLeft: "10px" }}>
                           (100%: {pred.predictedCases != null ? get100PercentPredictedCases(pred.predictedCases).toFixed(1) : "--"})
@@ -717,7 +739,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                       </div>
                       
                       <div className="last-year-based" style={{ fontSize: "16px", color: "#666", marginTop: "8px" }}>
-                        <strong>Last Year Sales Based (SIO):</strong>{" "}
+                        <strong>Based on {pred.sioBaseYear ?? "--"} Sales:</strong>{" "}
                         {pred.last_year_based_prediction != null ? getAdjustedPredictedCases(pred.last_year_based_prediction).toFixed(1) : "No data"}
                         <span style={{ fontSize: "14px", color: "#999", marginLeft: "10px" }}>
                           (100%: {pred.last_year_based_prediction != null ? get100PercentPredictedCases(pred.last_year_based_prediction).toFixed(1) : "No data"})
@@ -748,26 +770,34 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             girlsData.length > 0 && salesData.length > 0 && (
               <div className="analysis-section">
                 <div className="analysis-box">
-              <h4>Avg. Number of Girls by Year</h4>
+              <h4>Average Number of Girls per Year</h4>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={girlsData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="period" tickFormatter={periodToYear} />
-                  <YAxis />
-                  <Tooltip formatter={customTooltipFormatter} />
+                  <XAxis dataKey="period" tickFormatter={periodToYear}>
+                    <Label value="Year" position="insideBottom" offset={-5} />
+                  </XAxis>
+                  <YAxis>
+                    <Label value="Girls" angle={-90} position="insideLeft" offset={10} />
+                  </YAxis>
+                  <Tooltip labelFormatter={yearLabelFormatter} formatter={makeFriendlyFormatter({ avgGirls: 'Girls' })} />
                   <Line type="monotone" dataKey="avgGirls" stroke="#8884d8" strokeWidth={3} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
   
             <div className="analysis-box">
-              <h4>Total Average Cases Sold by Year per Troop</h4>
+              <h4>Average Cases Sold per Troop Each Year</h4>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={salesData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="period" tickFormatter={periodToYear} />
-                  <YAxis />
-                  <Tooltip formatter={customTooltipFormatter} />
+                  <XAxis dataKey="period" tickFormatter={periodToYear}>
+                    <Label value="Year" position="insideBottom" offset={-5} />
+                  </XAxis>
+                  <YAxis>
+                    <Label value="Avg Cases per Troop" angle={-90} position="insideLeft" offset={10} />
+                  </YAxis>
+                  <Tooltip labelFormatter={yearLabelFormatter} formatter={makeFriendlyFormatter({ avgSales: 'Avg Cases per Troop' })} />
                   <Bar dataKey="avgSales" fill="#82ca9d" />
                 </BarChart>
               </ResponsiveContainer>
@@ -791,9 +821,13 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                   <ResponsiveContainer width="100%" height={300}>
                     <ScatterChart>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" dataKey="number_of_girls" xAxisId="main" domain={["auto", "auto"]} />
-                      <YAxis type="number" dataKey="number_cases_sold" yAxisId="main" domain={["auto", "auto"]} />
-                      <Tooltip formatter={customTooltipFormatter} />
+                  <XAxis type="number" dataKey="number_of_girls" xAxisId="main" domain={["auto", "auto"]}>
+                    <Label value="Number of Girls" position="insideBottom" offset={-5} />
+                  </XAxis>
+                  <YAxis type="number" dataKey="number_cases_sold" yAxisId="main" domain={["auto", "auto"]}>
+                    <Label value="Cases Sold" angle={-90} position="insideLeft" offset={10} />
+                  </YAxis>
+                  <Tooltip content={<ScatterTooltip />} />
                       <Scatter data={filtered} fill={getColor(idx)} xAxisId="main" yAxisId="main" />
                       <Line
                         data={trendlineData}
@@ -838,7 +872,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
    - User enters troop id and number of girls.
    - Provides suggestions for troop id (fetched from /api/troop_ids).
    ------------------------------------------------------------------ */
-   function ReturningTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
+   function ReturningTroopSearchPage({ onSearch, onBack, onFaq, onHome }) {
     const [troopInput, setTroopInput] = useState("");
     const [numGirls, setNumGirls] = useState("");
     const [error, setError] = useState("");
@@ -887,7 +921,6 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           <nav className="nav-links">
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Returning Troops</h1>
@@ -928,7 +961,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
    - Displays analytics and predictions.
    - Also shows Troop ID and the associated SU info (returned from /api/history).
    ------------------------------------------------------------------ */
-      function ReturningTroopAnalyticsPage({ troopId, numGirls, onBack, onAbout, onFaq, onHome }) {
+      function ReturningTroopAnalyticsPage({ troopId, numGirls, onBack, onFaq, onHome }) {
     const [girlsData, setGirlsData] = useState([]);
     const [salesData, setSalesData] = useState([]);
     const [cookieBreakdownData, setCookieBreakdownData] = useState([]);
@@ -1015,6 +1048,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
             predictedCases: d.predicted_cases,
             last_year_based_prediction: d.last_year_based_prediction,
             imageUrl: d.image_url, // backend provides correct URL
+            sioBaseYear: d.sio_base_year
           };
         });
         setPredictions(formatted);
@@ -1103,7 +1137,6 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           <nav className="nav-links">
             <div className="nav-link" onClick={onHome}><FaHome /></div>
             <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-            <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
           </nav>
         </header>
         <h1 className="title">Returning Troop Dashboard</h1>
@@ -1168,7 +1201,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                       {cookieName}
                     </div>
                     <div className="predicted" style={{ fontSize: "20px" }}>
-                      <strong>ML Predicted Cases (Historical):</strong>{" "}
+                      <strong>ML-Recommended Cases:</strong>{" "}
                       <span>
                         {pred.predictedCases != null ? getAdjustedPredictedCases(pred.predictedCases).toFixed(1) : "--"}
                       </span>
@@ -1178,7 +1211,7 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                     </div>
                     
                     <div className="last-year-based" style={{ fontSize: "16px", color: "#666", marginTop: "8px" }}>
-                      <strong>Last Year Sales Based (SIO):</strong>{" "}
+                      <strong>Based on {pred.sioBaseYear ?? "--"} Sales:</strong>{" "}
                       <span>
                         {pred.last_year_based_prediction != null ? getAdjustedPredictedCases(pred.last_year_based_prediction).toFixed(1) : "No data"}
                       </span>
@@ -1209,26 +1242,34 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
           {cookieTypes.length === 0 && <div style={{color: 'red'}}>No cookieTypes</div>}
           {/* Total Cookie Cases Sold Chart */}
           <div className="analysis-box">
-            <h4>Total Cookie Cases Sold</h4>
+            <h4>Total Cases Sold by Troop</h4>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={salesData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="period" tickFormatter={periodToYear} />
-                <YAxis />
-                <Tooltip formatter={customTooltipFormatter} />
+                <XAxis dataKey="period" tickFormatter={periodToYear}>
+                  <Label value="Year" position="insideBottom" offset={-5} />
+                </XAxis>
+                <YAxis>
+                  <Label value="Cases Sold" angle={-90} position="insideLeft" offset={10} />
+                </YAxis>
+                <Tooltip labelFormatter={yearLabelFormatter} formatter={makeFriendlyFormatter({ totalSales: 'Cases Sold' })} />
                 <Line type="monotone" dataKey="totalSales" stroke="#8884d8" strokeWidth={3} />
               </LineChart>
             </ResponsiveContainer>
           </div>
           {/* Number of Girls by Year Chart */}
           <div className="analysis-box">
-            <h4>Number of Girls by Year</h4>
+            <h4>Average Number of Girls per Year</h4>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={girlsData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="period" tickFormatter={periodToYear} />
-                <YAxis />
-                <Tooltip formatter={customTooltipFormatter} />
+                <XAxis dataKey="period" tickFormatter={periodToYear}>
+                  <Label value="Year" position="insideBottom" offset={-5} />
+                </XAxis>
+                <YAxis>
+                  <Label value="Girls" angle={-90} position="insideLeft" offset={10} />
+                </YAxis>
+                <Tooltip labelFormatter={yearLabelFormatter} formatter={makeFriendlyFormatter({ numberOfGirls: 'Girls' })} />
                 <Bar dataKey="numberOfGirls" fill="#82ca9d" />
               </BarChart>
             </ResponsiveContainer>
@@ -1252,9 +1293,13 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={lineData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" tickFormatter={periodToYear} />
-                    <YAxis />
-                    <Tooltip formatter={customTooltipFormatter} />
+                    <XAxis dataKey="period" tickFormatter={periodToYear}>
+                      <Label value="Year" position="insideBottom" offset={-5} />
+                    </XAxis>
+                    <YAxis>
+                      <Label value="Cases Sold" angle={-90} position="insideLeft" offset={10} />
+                    </YAxis>
+                    <Tooltip labelFormatter={yearLabelFormatter} formatter={makeFriendlyFormatter({ sales: 'Cases Sold' })} />
                     <Line type="monotone" dataKey="sales" stroke={getColor(idx)} strokeWidth={3} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -1271,230 +1316,28 @@ function NewTroopSearchPage({ onSearch, onBack, onAbout, onFaq, onHome }) {
 /* ------------------------------------------------------------------
    ABOUT PAGE
    ------------------------------------------------------------------ */
-function AboutPage({ onBack, onHome, onFaq }) {
-  return (
-    <div className="main-container">
-      <div className="background"></div>
-      <div className="overlay"></div>
-      <header className="header">
-        <div className="logo-row">
-          <img src={`${API_BASE}/static/GSC(2).png`} alt="GSCI Logo" style={{ height: '50px', marginRight: '20px' }} />
-          <img src={`${API_BASE}/static/KREN2.png`} alt="KREN2 Logo" style={{ height: '100px', marginRight: '20px' }} />
-          <img src={`${API_BASE}/static/KREN.png`} alt="KREN Logo" style={{ height: '150px' }} />
-        </div>
-        <nav className="nav-links">
-          <div className="nav-link" onClick={onHome}><FaHome /></div>
-          <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
-        </nav>
-      </header>
-      <h1 className="title">About The Platform</h1>
-      <div className="content" style={{ 
-        maxWidth: '1200px', 
-        margin: '0 auto', 
-        textAlign: 'left',
-        color: 'white',
-        padding: '20px'
-      }}>
-        
-        <section style={{ 
-          marginBottom: '60px',
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          padding: '40px',
-          borderRadius: '12px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          border: '1px solid rgba(255, 255, 255, 0.1)'
-        }}>
-          <h2 style={{ 
-            color: 'white', 
-            borderBottom: '3px solid #8B5CF6', 
-            paddingBottom: '15px', 
-            marginBottom: '30px',
-            fontSize: '28px',
-            fontWeight: 'bold',
-            textShadow: '0 2px 4px rgba(0, 0, 0, 0.5)'
-          }}>
-            Project
-          </h2>
-          <div style={{ display: 'flex', gap: '40px', alignItems: 'center' }}>
-            <div style={{ flex: '1' }}>
-              <p style={{ lineHeight: '1.8', fontSize: '18px', marginBottom: '20px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                Advanced machine learning platform that transforms cookie sales forecasting.
-              </p>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>ML Models:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Ridge Regression with clustering algorithms</li>
-                  <li>Dynamic model selection for optimal accuracy</li>
-                  <li>Hybrid system combining multiple prediction methods</li>
-                </ul>
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Results:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>1.35 cases improvement per troop per cookie type</li>
-                  <li>181,000+ additional boxes sold across 1,400+ troops</li>
-                  <li>Real-time predictions with accurate forecasting</li>
-                </ul>
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Features:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Scenario modeling for different participation levels</li>
-                  <li>Comprehensive analytics dashboards</li>
-                  <li>Data-driven inventory and marketing decisions</li>
-                </ul>
-              </div>
-            </div>
-            <div style={{ flex: '0 0 400px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <img 
-                src={`${API_BASE}/static/chemicalgsci.jpg`} 
-                alt="Machine Learning Project" 
-                style={{ 
-                  width: '100%', 
-                  height: '350px', 
-                  objectFit: 'cover',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)'
-                }}
-              />
-            </div>
-          </div>
-        </section>
-
-        <section style={{ 
-          marginBottom: '60px',
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          padding: '40px',
-          borderRadius: '12px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          border: '1px solid rgba(255, 255, 255, 0.1)'
-        }}>
-          <h2 style={{ 
-            color: 'white', 
-            borderBottom: '3px solid #8B5CF6', 
-            paddingBottom: '15px', 
-            marginBottom: '30px',
-            fontSize: '28px',
-            fontWeight: 'bold',
-            textShadow: '0 2px 4px rgba(0, 0, 0, 0.5)'
-          }}>
-            Girl Scouts of Central Indiana
-          </h2>
-          <div style={{ display: 'flex', gap: '40px', alignItems: 'center' }}>
-            <div style={{ flex: '0 0 400px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <img 
-                src={`${API_BASE}/static/gsci_whitelogo.jpg`} 
-                alt="Girl Scouts of Central Indiana" 
-                style={{ 
-                  width: '100%', 
-                  height: '350px', 
-                  objectFit: 'cover',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)'
-                }}
-              />
-            </div>
-            <div style={{ flex: '1' }}>
-              <p style={{ lineHeight: '1.8', fontSize: '18px', marginBottom: '20px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                Empowering girls across the region to develop leadership skills and make a positive impact.
-              </p>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Cookie Program Benefits:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Business skills: goal setting, money management, customer service</li>
-                  <li>Entrepreneurship and marketing strategy development</li>
-                  <li>SMART goal setting and progress tracking</li>
-                </ul>
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Educational Impact:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Funds troop activities and community service projects</li>
-                  <li>Supports camping trips, STEM workshops, and badge activities</li>
-                  <li>Builds character and life skills through hands-on learning</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section style={{ 
-          marginBottom: '60px',
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          padding: '40px',
-          borderRadius: '12px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          border: '1px solid rgba(255, 255, 255, 0.1)'
-        }}>
-          <h2 style={{ 
-            color: 'white', 
-            borderBottom: '3px solid #8B5CF6', 
-            paddingBottom: '15px', 
-            marginBottom: '30px',
-            fontSize: '28px',
-            fontWeight: 'bold',
-            textShadow: '0 2px 4px rgba(0, 0, 0, 0.5)'
-          }}>
-            Krenicki Center for Business Analytics & Machine Learning
-          </h2>
-          <div style={{ display: 'flex', gap: '40px', alignItems: 'center' }}>
-            <div style={{ flex: '1' }}>
-              <p style={{ lineHeight: '1.8', fontSize: '18px', marginBottom: '20px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                Leading hub for business analytics and machine learning research at Purdue University.
-              </p>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Research Focus:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Predictive analytics and optimization algorithms</li>
-                  <li>Machine learning applications across healthcare, finance, retail</li>
-                  <li>Data-driven approaches to complex business challenges</li>
-                </ul>
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Industry Partnerships:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Collaboration with Fortune 500 companies and startups</li>
-                  <li>Real-world project experience for students</li>
-                  <li>Innovative solutions driving business value and social impact</li>
-                </ul>
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <strong style={{ color: '#8B5CF6' }}>Student Programs:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', lineHeight: '1.6', fontSize: '16px', textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)' }}>
-                  <li>Specialized courses in business analytics and data science</li>
-                  <li>Capstone projects, hackathons, and research initiatives</li>
-                  <li>Career preparation in rapidly evolving analytics field</li>
-                </ul>
-              </div>
-            </div>
-            <div style={{ flex: '0 0 400px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <img 
-                src={`${API_BASE}/static/gscicamp.png`} 
-                alt="Krenicki Center" 
-                style={{ 
-                  width: '100%', 
-                  height: '350px', 
-                  objectFit: 'cover',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)'
-                }}
-              />
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
+// AboutPage removed; content will be summarized in FAQ's first item
 
 /* ------------------------------------------------------------------
    FAQ PAGE
    ------------------------------------------------------------------ */
-function FAQPage({ onBack, onHome, onAbout }) {
+function FAQPage({ onBack, onHome, onFaq }) {
   const [openQuestion, setOpenQuestion] = useState(null);
 
   const faqData = [
+    {
+      question: "About the Project",
+      answer: (
+        <span>
+          This platform uses historical sales and troop participation to generate cookie sales forecasts with machine learning. It helps troop leaders plan inventory, set goals, and model different participation scenarios.
+          <br /><br />
+          Learn more about our partners: {" "}
+          <a href="https://www.girlscoutsindiana.org/" target="_blank" rel="noopener noreferrer">Girl Scouts of Central Indiana</a>{" "}
+          and the {" "}
+          <a href="https://business.purdue.edu/centers/krenicki-center/" target="_blank" rel="noopener noreferrer">Krenicki Center for Business Analytics & Machine Learning</a>.
+        </span>
+      )
+    },
     {
       question: "How does the cookie prediction system work?",
       answer: "Advanced machine learning models analyze historical sales data and troop participation to predict future cookie sales. The system automatically selects the most accurate prediction method for each troop-cookie combination."
@@ -1534,7 +1377,6 @@ function FAQPage({ onBack, onHome, onAbout }) {
         <nav className="nav-links">
           <div className="nav-link" onClick={onHome}><FaHome /></div>
           <div className="nav-link" onClick={onFaq}><FaQuestionCircle /></div>
-          <div className="nav-link" onClick={onAbout}><FaInfoCircle /></div>
         </nav>
       </header>
       <h1 className="title">Frequently Asked Questions</h1>
@@ -1629,7 +1471,6 @@ function FAQPage({ onBack, onHome, onAbout }) {
           onNewTroop={() => setPage("newTroopSearch")}
           onReturningTroop={() => setPage("returningTroopSearch")}
           onManual={() => setPage("manual")}
-          onAbout={() => setPage("about")}
           onFaq={() => setPage("faq")}
           onHome={() => setPage("landing")}
         />
@@ -1646,7 +1487,6 @@ function FAQPage({ onBack, onHome, onAbout }) {
             setNewTroopNumGirls(numGirls);
             setPage("newTroopAnalytics");
           }}
-          onAbout={() => setPage("about")}
           onFaq={() => setPage("faq")}
           onHome={() => setPage("landing")}
         />
@@ -1654,7 +1494,7 @@ function FAQPage({ onBack, onHome, onAbout }) {
     }
 
     if (page === "manual") {
-      return <ManualPage onBack={() => setPage("landing")} onAbout={() => setPage("about")} onFaq={() => setPage("faq")} onHome={() => setPage("landing")} />;
+      return <ManualPage onBack={() => setPage("landing")} onFaq={() => setPage("faq")} onHome={() => setPage("landing")} />;
     }
     
   
@@ -1665,7 +1505,6 @@ function FAQPage({ onBack, onHome, onAbout }) {
           suName={selectedSUName}
           initialNumGirls={newTroopNumGirls}
           onBack={() => setPage("newTroopSearch")}
-          onAbout={() => setPage("about")}
           onFaq={() => setPage("faq")}
           onHome={() => setPage("landing")}
         />
@@ -1681,7 +1520,6 @@ function FAQPage({ onBack, onHome, onAbout }) {
             setReturningNumGirls(numGirls);
             setPage("returningTroopAnalytics");
           }}
-          onAbout={() => setPage("about")}
           onFaq={() => setPage("faq")}
           onHome={() => setPage("landing")}
         />
@@ -1694,19 +1532,14 @@ function FAQPage({ onBack, onHome, onAbout }) {
           troopId={returningTroopId}
           numGirls={returningNumGirls}
           onBack={() => setPage("returningTroopSearch")}
-          onAbout={() => setPage("about")}
           onFaq={() => setPage("faq")}
           onHome={() => setPage("landing")}
         />
       );
     }
 
-    if (page === "about") {
-      return <AboutPage onBack={() => setPage("landing")} onHome={() => setPage("landing")} onFaq={() => setPage("faq")} />;
-    }
-
     if (page === "faq") {
-      return <FAQPage onBack={() => setPage("landing")} onHome={() => setPage("landing")} onAbout={() => setPage("about")} />;
+      return <FAQPage onBack={() => setPage("landing")} onHome={() => setPage("landing")} onFaq={() => setPage("faq")} />;
     }
   
     return null;
