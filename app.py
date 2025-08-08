@@ -640,7 +640,8 @@ def api_predict():
                 "last_year_sales": round(last_year_sales, 2) if last_year_sales is not None else None,
                 "last_year_based_prediction": round(last_year_based_prediction, 2) if last_year_based_prediction is not None else None,
                 "image_url": image_url,
-                "source": "model"
+                "source": "model",
+                "sio_base_year": last_year
             })
             print(f"[DEBUG] Final result for {cookie}: ML={round(predicted_val, 2)}, SIO={round(last_year_based_prediction, 2) if last_year_based_prediction is not None else None}")
         print(f"[DEBUG] Final predictions before active filter: {final_predictions}")
@@ -662,7 +663,7 @@ def api_predict():
             historical_cookies = set(df_new[(df_new['troop_id'] == troop_id)]['normalized_cookie_type'].unique())
 
             # Build a working forecast map from current predictions (0.0 if missing)
-            forecast: Dict[str, float] = {}
+            forecast: Dict[str, Optional[float]] = {}
             for p in final_predictions:
                 cookie_name = p["cookie_type"]
                 val = p.get("predicted_cases")
@@ -680,7 +681,8 @@ def api_predict():
                         avg_pga = hist['cases_sold'].sum() / hist['num_girls'].sum()
                         forecast[rc] = float(avg_pga * input_num_girls)
                     else:
-                        forecast[rc] = 0.0
+                        # No basis -> leave as None so downstream shows "No data"
+                        forecast[rc] = None
 
             # Apply transitions: create/update New Cookie predictions from replaced + shares
             for _, row in transitions_df.iterrows():
@@ -693,12 +695,17 @@ def api_predict():
                     continue
 
                 # Base from replaced cookie forecast plus optional shares
-                value = float(forecast.get(replaces_cookie, 0.0))
+                base_val = forecast.get(replaces_cookie, None)
+                value = float(base_val) if base_val is not None else 0.0
+                had_contribution = (base_val is not None and value > 0)
                 for i in range(1, 6):
                     share_from = row.get(f'ShareFrom_{i}')
                     share_pct = row.get(f'SharePct_{i}')
                     if pd.notnull(share_from) and pd.notnull(share_pct):
-                        value += float(forecast.get(share_from, 0.0)) * (float(share_pct) / 100.0)
+                        sf_val = forecast.get(share_from, None)
+                        if sf_val is not None:
+                            value += float(sf_val) * (float(share_pct) / 100.0)
+                            had_contribution = had_contribution or (float(sf_val) > 0)
 
                 # Synthetic last-year SIO using same sources at troop-level
                 last_year_sales_syn = 0.0
@@ -719,24 +726,27 @@ def api_predict():
                         last_year_girls_syn += float(sf_rows['num_girls'].sum()) * (float(share_pct) / 100.0)
                 sio_scaled = (last_year_sales_syn * (input_num_girls / last_year_girls_syn)) if last_year_girls_syn > 0 else None
 
-                # Upsert into final_predictions
-                image_url = url_for('static', filename=cookie_image_map.get(new_cookie, "default.png"), _external=True)
-                existing = next((p for p in final_predictions if p["cookie_type"] == new_cookie), None)
-                if existing:
-                    existing["predicted_cases"] = round(float(value), 2)
-                    existing["last_year_sales"] = round(float(last_year_sales_syn), 2) if last_year_sales_syn > 0 else None
-                    existing["last_year_based_prediction"] = round(float(sio_scaled), 2) if sio_scaled is not None else None
-                    existing["source"] = "fallback"
-                    existing["image_url"] = image_url
-                else:
-                    final_predictions.append({
-                        "cookie_type": new_cookie,
-                        "predicted_cases": round(float(value), 2),
-                        "last_year_sales": round(float(last_year_sales_syn), 2) if last_year_sales_syn > 0 else None,
-                        "last_year_based_prediction": round(float(sio_scaled), 2) if sio_scaled is not None else None,
-                        "image_url": image_url,
-                        "source": "fallback"
-                    })
+                # Only create/update prediction when there is a positive basis
+                if had_contribution and value > 0:
+                    image_url = url_for('static', filename=cookie_image_map.get(new_cookie, "default.png"), _external=True)
+                    existing = next((p for p in final_predictions if p["cookie_type"] == new_cookie), None)
+                    if existing:
+                        existing["predicted_cases"] = round(float(value), 2)
+                        existing["last_year_sales"] = round(float(last_year_sales_syn), 2) if last_year_sales_syn > 0 else None
+                        existing["last_year_based_prediction"] = round(float(sio_scaled), 2) if sio_scaled is not None else None
+                        existing["source"] = "fallback"
+                        existing["image_url"] = image_url
+                        existing["sio_base_year"] = last_year
+                    else:
+                        final_predictions.append({
+                            "cookie_type": new_cookie,
+                            "predicted_cases": round(float(value), 2),
+                            "last_year_sales": round(float(last_year_sales_syn), 2) if last_year_sales_syn > 0 else None,
+                            "last_year_based_prediction": round(float(sio_scaled), 2) if sio_scaled is not None else None,
+                            "image_url": image_url,
+                            "source": "fallback",
+                            "sio_base_year": last_year
+                        })
                 print(f"[DEBUG] Transition applied: {new_cookie} <- {replaces_cookie}; pred={value}, SIO={sio_scaled}")
         except Exception as e:
             print(f"[DEBUG] Transitions logic skipped or failed: {e}")
@@ -761,7 +771,8 @@ def api_predict():
                     "last_year_sales": None,
                     "last_year_based_prediction": None,
                     "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
-                    "source": "missing"
+                    "source": "missing",
+                    "sio_base_year": last_year
                 })
 
         print(f"[DEBUG] Filtered predictions (completed set): {filtered_predictions}")
@@ -1243,7 +1254,8 @@ def su_predict():
                     'last_year_sales': round(float(last_year_sales), 2) if last_year_sales is not None else None,
                     'last_year_based_prediction': round(float(last_year_based_prediction), 2) if last_year_based_prediction is not None else None,
                     'image_url': image_url,
-                    'source': best_method
+                    'source': best_method,
+                    'sio_base_year': last_year
                 })
                 print(f"[DEBUG] SU {su_num} - Fallback prediction for {cookie}: pred={best_pred}, SIO={last_year_based_prediction}")
         else:
@@ -1375,7 +1387,8 @@ def su_predict():
                     'last_year_sales': round(float(last_year_sales), 2) if last_year_sales is not None else None,
                     'last_year_based_prediction': round(float(last_year_based_prediction), 2) if last_year_based_prediction is not None else None,
                     'image_url': image_url,
-                    'source': best_method
+                    'source': best_method,
+                    'sio_base_year': last_year
                 })
         # --- Cookie Transitions Logic ---
         transitions_df = pd.read_sql("SELECT * FROM cookie_transitions", engine)
@@ -1397,19 +1410,20 @@ def su_predict():
         for rc in replaced_cookies:
             if rc not in forecast:
                 hist = su_data[su_data['normalized_cookie_type'] == rc]
-                if not hist.empty:
+                if not hist.empty and hist['num_girls'].sum() > 0:
                     avg_pga = (hist['cases_sold'] / hist['num_girls']).mean()
                     pred_val = avg_pga * num_girls
+                    forecast[rc] = pred_val
+                    all_predictions.append({
+                        "cookie_type": rc,
+                        "predicted_cases": round(pred_val, 2),
+                        "image_url": url_for('static', filename=cookie_image_map.get(rc, "default.png"), _external=True),
+                        "source": "fallback"
+                    })
+                    print(f"[DEBUG] Added fallback forecast for replaced cookie {rc}: {pred_val}")
                 else:
-                    pred_val = 0
-                forecast[rc] = pred_val
-                all_predictions.append({
-                    "cookie_type": rc,
-                    "predicted_cases": round(pred_val, 2),
-                    "image_url": url_for('static', filename=cookie_image_map.get(rc, "default.png"), _external=True),
-                    "source": "fallback"
-                })
-                print(f"[DEBUG] Added fallback forecast for replaced cookie {rc}: {pred_val}")
+                    forecast[rc] = None
+                    print(f"[DEBUG] No history for replaced cookie {rc}; leaving as None to indicate no data")
 
         # Proceed with transition logic
         for idx, row in transitions_df.iterrows():
@@ -1417,19 +1431,21 @@ def su_predict():
             replaces_cookie = row['Replaces Cookie']
             print(f"[DEBUG] Transition: {new_cookie} replaces {replaces_cookie}")
             if new_cookie not in historical_cookies:
-                base = forecast.get(replaces_cookie, 0)
-                if base <= 0:
+                base_val = forecast.get(replaces_cookie, None)
+                if base_val is None or base_val <= 0:
                     print(f"[DEBUG] No forecast for {replaces_cookie}; skip new cookie {new_cookie}")
                     continue  # Skip creating prediction for this new cookie
-                forecast[new_cookie] = base
+                forecast[new_cookie] = base_val
                 print(f"[DEBUG] Base forecast for {new_cookie}: {base}")
                 for i in range(1, 6):
                     share_from = row.get(f'ShareFrom_{i}')
                     share_pct = row.get(f'SharePct_{i}')
                     if pd.notnull(share_from) and pd.notnull(share_pct):
-                        add_val = forecast.get(share_from, 0) * (share_pct / 100)
-                        forecast[new_cookie] += add_val
-                        print(f"[DEBUG] Added {add_val} from {share_from} ({share_pct}%)")
+                        sf_val = forecast.get(share_from, None)
+                        if sf_val is not None:
+                            add_val = sf_val * (share_pct / 100)
+                            forecast[new_cookie] += add_val
+                            print(f"[DEBUG] Added {add_val} from {share_from} ({share_pct}%)")
                 print(f"[DEBUG] Final forecast for {new_cookie}: {forecast[new_cookie]}")
             else:
                 print(f"[DEBUG] {new_cookie} has historical data, skipping transition logic")
@@ -1479,7 +1495,8 @@ def su_predict():
                     "last_year_sales": round(last_year_sales_syn, 2) if last_year_sales_syn > 0 else None,
                     "last_year_based_prediction": round(float(sio_scaled), 2) if sio_scaled is not None else None,
                     "image_url": url_for('static', filename=cookie_image_map.get(cookie, "default.png"), _external=True),
-                    "source": "fallback"
+                    "source": "fallback",
+                    "sio_base_year": last_year
                 })
         print(f"[DEBUG] Final predictions after all logic: {all_predictions}")
         active_cookies = set(active_df[active_df['status'].str.lower() == 'active']['normalized_cookie_type'])
